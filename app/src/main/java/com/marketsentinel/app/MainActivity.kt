@@ -64,7 +64,7 @@ private fun SentinelApp(settings: SecureSettings) {
         busy = true
         status = "正在并发刷新行情…"
         try {
-            val list = symbols.split(",").map { it.trim().uppercase() }.filter { it.isNotBlank() }.distinct().take(20)
+            val list = symbols.split(",").map { it.trim().uppercase() }.map { if (it == "AIXIC") "^IXIC" else it }.filter { it.isNotBlank() }.distinct().take(20)
             if (list.isEmpty()) {
                 status = "请先添加股票、指数或加密货币标的。"
                 return
