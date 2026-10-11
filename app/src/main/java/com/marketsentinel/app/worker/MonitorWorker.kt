@@ -61,14 +61,14 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 else -> null
             }
             val levels = if (signal.kind == "ACTION_BUY") buildString {
-                append("\\n止损参考线：${signal.stopLoss?.let { "%.8f".format(it) } ?: "暂无"}")
-                append("\\n第一目标参考价：${signal.target1?.let { "%.8f".format(it) } ?: "暂无"}")
-                append("\\n第二目标参考价：${signal.target2?.let { "%.8f".format(it) } ?: "暂无"}")
+                append("\n止损参考线：${signal.stopLoss?.let { "%.8f".format(it).trimEnd('0').trimEnd('.') } ?: "暂无"}")
+                append("\n第一目标参考价：${signal.target1?.let { "%.8f".format(it).trimEnd('0').trimEnd('.') } ?: "暂无"}")
+                append("\n第二目标参考价：${signal.target2?.let { "%.8f".format(it).trimEnd('0').trimEnd('.') } ?: "暂无"}")
             } else ""
-            val message = "【星澜 Pro/${signal.severity}】${signal.title}\\n" +
-                (actionLabel?.let { "操作结论：$it\\n" } ?: "类型：行情观察，不是买卖指令\\n") +
-                "标的：${signal.symbol}\\n现价：${signal.price}$levels\\n规则：${signal.kind}\\n" +
-                "原因：${signal.reason}\\n周期：15 分钟 K 线\\n" +
+            val message = "【星澜 Pro/${signal.severity}】${signal.title}\n" +
+                (actionLabel?.let { "操作结论：$it\n" } ?: "类型：行情观察，不是买卖指令\n") +
+                "标的：${signal.symbol}\n现价：${signal.price}$levels\n规则：${signal.kind}\n" +
+                "原因：${signal.reason}\n周期：15 分钟 K 线\n" +
                 "这是基于当前技术指标的规则信号，不保证盈利；不会自动交易。"
 
             // 手机本地通知独立于企业微信 Webhook；用户不配置 Webhook 也能收到提醒。
@@ -97,9 +97,9 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                         appendLine("<font color=\"info\">标的</font>：**${signal.symbol}**")
                         appendLine("<font color=\"info\">当前价格</font>：**${signal.price}**")
                         if (signal.kind == "ACTION_BUY") {
-                            appendLine("<font color=\"warning\">止损参考线</font>：**${signal.stopLoss?.let { "%.8f".format(it) } ?: "暂无"}**")
-                            appendLine("<font color=\"info\">第一目标参考价</font>：**${signal.target1?.let { "%.8f".format(it) } ?: "暂无"}**")
-                            appendLine("<font color=\"info\">第二目标参考价</font>：**${signal.target2?.let { "%.8f".format(it) } ?: "暂无"}**")
+                            appendLine("<font color=\"warning\">止损参考线</font>：**${signal.stopLoss?.let { "%.8f".format(it).trimEnd('0').trimEnd('.') } ?: "暂无"}**")
+                            appendLine("<font color=\"info\">第一目标参考价</font>：**${signal.target1?.let { "%.8f".format(it).trimEnd('0').trimEnd('.') } ?: "暂无"}**")
+                            appendLine("<font color=\"info\">第二目标参考价</font>：**${signal.target2?.let { "%.8f".format(it).trimEnd('0').trimEnd('.') } ?: "暂无"}**")
                         }
                         appendLine("<font color=\"info\">信号类型</font>：${signal.kind}")
                         appendLine("<font color=\"info\">观察周期</font>：15 分钟 K 线")
