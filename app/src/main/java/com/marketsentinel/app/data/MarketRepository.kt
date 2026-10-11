@@ -18,7 +18,46 @@ class MarketRepository {
     fun snapshot(rawSymbol: String): Result<MarketSnapshot> = runCatching {
         val symbol = rawSymbol.trim().uppercase()
         require(symbol.matches(Regex("[A-Z0-9.^=_-]{1,24}"))) { "标的代码格式不正确：" + rawSymbol }
-        if (isCryptoSymbol(symbol)) crypto(symbol) else yahoo(symbol)
+        if (isCryptoSymbol(symbol)) crypto(symbol) else if (isChinaSymbol(symbol)) chinaQuote(symbol) else yahoo(symbol)
+    }
+
+    private fun isChinaSymbol(symbol: String): Boolean =
+        symbol.matches(Regex("^[0-9]{6}\\.(SS|SZ)$"))
+
+    /**
+     * A 股快照：使用新浪公开行情接口。该接口提供最新报价，不承诺历史 K 线；
+     * 因此 A 股当前以价格/涨跌幅监控为主，历史技术指标不足时不伪造信号。
+     */
+    private fun chinaQuote(symbol: String): MarketSnapshot {
+        val code = symbol.substringBefore(".")
+        val exchange = symbol.substringAfter(".")
+        val sinaCode = (if (exchange == "SS") "sh" else "sz") + code
+        val url = "https://hq.sinajs.cn/list=" + sinaCode
+        val request = Request.Builder().url(url)
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125.0 Mobile Safari/537.36")
+            .header("Referer", "https://finance.sina.com.cn/")
+            .header("Accept", "*/*")
+            .get().build()
+        val body = client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) error("新浪 A 股行情 HTTP " + response.code)
+            val bytes = response.body?.bytes() ?: error("新浪 A 股行情响应为空")
+            String(bytes, java.nio.charset.Charset.forName("GBK"))
+        }
+        val raw = body.substringAfter('=', "").trim().trimEnd(';').trim('"')
+        val fields = raw.split(",")
+        require(fields.size >= 10 && fields[0].isNotBlank()) {
+            "未获取到 A 股行情，请检查代码或交易时间"
+        }
+        val previous = fields[2].toDoubleOrNull() ?: error("A 股昨收价无效")
+        val price = fields[3].toDoubleOrNull() ?: error("A 股最新价无效")
+        val volume = fields[8].toDoubleOrNull() ?: 0.0
+        require(price > 0 && price.isFinite()) { "A 股暂时无有效报价（可能停牌或休市）" }
+        val change = if (previous > 0) (price - previous) / previous * 100 else 0.0
+        val candle = Candle(System.currentTimeMillis(), price, price, price, price, volume)
+        return MarketSnapshot(
+            MarketQuote(symbol, "A股", price, change, volume, source = "新浪公开行情 · 实时报价"),
+            listOf(candle)
+        )
     }
 
     private fun isCryptoSymbol(symbol: String): Boolean =
