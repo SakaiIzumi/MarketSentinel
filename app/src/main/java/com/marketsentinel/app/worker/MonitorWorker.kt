@@ -13,6 +13,7 @@ import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.marketsentinel.app.MainActivity
+import com.marketsentinel.app.data.HoldingPosition
 import com.marketsentinel.app.data.MarketRepository
 import com.marketsentinel.app.data.SecureSettings
 import com.marketsentinel.app.data.WeComNotifier
@@ -41,6 +42,11 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
         }
         if (fetched.all { it.second.isFailure }) return@withContext Result.retry()
 
+        val quantities = settings.getHoldingQuantities()
+        val holdings = settings.getPurchasePrices().mapNotNull { (symbol, averageCost) ->
+            val quantity = quantities[symbol] ?: return@mapNotNull null
+            if (averageCost > 0 && quantity > 0) symbol to HoldingPosition(averageCost, quantity) else null
+        }.toMap()
         val signals = fetched.flatMap { (_, result) ->
             result.getOrNull()?.let {
                 StrategyEngine.evaluate(it, settings.getCryptoThreshold(), settings.getStockThreshold())
@@ -65,11 +71,16 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 append("\n第一目标参考价：${signal.target1?.let { "%.8f".format(it).trimEnd('0').trimEnd('.') } ?: "暂无"}")
                 append("\n第二目标参考价：${signal.target2?.let { "%.8f".format(it).trimEnd('0').trimEnd('.') } ?: "暂无"}")
             } else ""
+            val position = holdings[signal.symbol]
+            val positionText = if (position != null && signal.price > 0) {
+                val pnl = (signal.price - position.averageCost) / position.averageCost * 100.0
+                "\n你的持仓：${position.quantity} 单位；买入均价：${position.averageCost}；持仓盈亏：${if (pnl >= 0) "+" else ""}${"%.2f".format(pnl)}%（未计手续费/税费）"
+            } else ""
             val message = "【星澜 Pro/${signal.severity}】${signal.title}\n" +
                 (actionLabel?.let { "操作结论：$it\n" } ?: "类型：行情观察，不是买卖指令\n") +
-                "标的：${signal.symbol}\n现价：${signal.price}$levels\n规则：${signal.kind}\n" +
+                "标的：${signal.symbol}\n现价：${signal.price}$levels$positionText\n规则：${signal.kind}\n" +
                 "原因：${signal.reason}\n周期：15 分钟 K 线\n" +
-                "这是基于当前技术指标的规则信号，不保证盈利；不会自动交易。"
+                "规则信号不保证盈利；请核对行情时效，不会自动交易。"
 
             // 手机本地通知独立于企业微信 Webhook；用户不配置 Webhook 也能收到提醒。
             val localKey = key + "_local"
@@ -96,6 +107,12 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                         appendLine()
                         appendLine("<font color=\"info\">标的</font>：**${signal.symbol}**")
                         appendLine("<font color=\"info\">当前价格</font>：**${signal.price}**")
+                        if (position != null && signal.price > 0) {
+                            val pnl = (signal.price - position.averageCost) / position.averageCost * 100.0
+                            appendLine("<font color=\"info\">你的持仓</font>：**${position.quantity} 单位**")
+                            appendLine("<font color=\"info\">买入均价</font>：**${position.averageCost}**")
+                            appendLine("<font color=\"${if (pnl >= 0) "info" else "warning"}\">持仓盈亏</font>：**${if (pnl >= 0) "+" else ""}${"%.2f".format(pnl)}%**（未计手续费/税费）")
+                        }
                         if (signal.kind == "ACTION_BUY") {
                             appendLine("<font color=\"warning\">止损参考线</font>：**${signal.stopLoss?.let { "%.8f".format(it).trimEnd('0').trimEnd('.') } ?: "暂无"}**")
                             appendLine("<font color=\"info\">第一目标参考价</font>：**${signal.target1?.let { "%.8f".format(it).trimEnd('0').trimEnd('.') } ?: "暂无"}**")
@@ -117,54 +134,59 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 }
             }
         }
-        // 买入价提醒：首次突破买入价时通知一次；回落到买入价或以下后重新布防。
-        val purchasePrices = settings.getPurchasePrices()
-        val crossingPrefs = applicationContext.getSharedPreferences("purchase_price_crossings", Context.MODE_PRIVATE)
+        // 按真实持仓成本计算盈亏；默认止损 -5%、止盈 +8%，只在进入新风险区间时提醒。
+        val positionPrefs = applicationContext.getSharedPreferences("position_alert_states", Context.MODE_PRIVATE)
         for ((symbol, result) in fetched) {
-            val entryPrice = purchasePrices[symbol] ?: continue
+            val position = holdings[symbol] ?: continue
             val snapshot = result.getOrNull() ?: continue
             val currentPrice = snapshot.quote.price
-            if (!currentPrice.isFinite() || currentPrice <= 0) continue
+            if (!currentPrice.isFinite() || currentPrice <= 0 || position.averageCost <= 0 || position.quantity <= 0) continue
+            val pnlPct = (currentPrice - position.averageCost) / position.averageCost * 100.0
+            val pnlAmount = (currentPrice - position.averageCost) * position.quantity
+            val zone = when {
+                pnlPct <= -5.0 -> "STOP_LOSS"
+                pnlPct >= 8.0 -> "TAKE_PROFIT"
+                else -> "IN_RANGE"
+            }
+            val action = when (zone) {
+                "STOP_LOSS" -> "卖出/减仓评估：已触发默认止损线（-5%）"
+                "TAKE_PROFIT" -> "分批止盈：已达到默认止盈线（+8%）"
+                else -> null
+            }
             val stateKey = symbol.replace(Regex("[^A-Za-z0-9_.-]"), "_")
-            val isAbove = currentPrice > entryPrice
-            val localStateKey = "local_$stateKey"
-            val wecomStateKey = "wecom_$stateKey"
-            if (!isAbove) {
-                crossingPrefs.edit().putBoolean(localStateKey, false).putBoolean(wecomStateKey, false).apply()
+            val oldZone = positionPrefs.getString(stateKey, "IN_RANGE")
+            if (zone == "IN_RANGE") {
+                positionPrefs.edit().putString(stateKey, zone).apply()
                 continue
             }
-
-            val pctAbove = (currentPrice - entryPrice) / entryPrice * 100.0
+            if (oldZone == zone) continue
             val priceText = if (snapshot.quote.market == "CRYPTO") "${"%.8f".format(currentPrice)} USDT" else "%.4f".format(currentPrice)
-            val entryText = if (snapshot.quote.market == "CRYPTO") "${"%.8f".format(entryPrice)} USDT" else "%.4f".format(entryPrice)
-            val title = "价格高于你的买入价"
-            val message = "【星澜 Pro·买入价提醒】$symbol 已高于你设置的买入价。\n" +
-                "当前价格：$priceText\n你的买入价：$entryText\n" +
-                "高于买入价：+${"%.2f".format(pctAbove)}%\n" +
-                "这只是价格提醒，不代表建议买入或卖出。"
-            if (!crossingPrefs.getBoolean(localStateKey, false)) {
-                if (sendLocalNotification(title, message, ("buy_$stateKey").hashCode())) {
-                    crossingPrefs.edit().putBoolean(localStateKey, true).apply()
-                }
-            }
-            if (webhook.isNotBlank() && !crossingPrefs.getBoolean(wecomStateKey, false)) {
+            val costText = if (snapshot.quote.market == "CRYPTO") "${"%.8f".format(position.averageCost)} USDT" else "%.4f".format(position.averageCost)
+            val currency = if (snapshot.quote.market == "CRYPTO") "USDT" else "计价货币"
+            val message = "【星澜 Pro·持仓操作提醒】$symbol\n" +
+                "操作结论：$action\n当前价格：$priceText\n买入均价：$costText\n" +
+                "持有数量：${position.quantity}\n浮动盈亏：${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%（约 ${"%.2f".format(pnlAmount)} $currency，未计手续费/税费）\n" +
+                "默认阈值：止损 -5%，止盈 +8%。这是起步规则，不保证盈利；核对行情后自行决定，不会自动下单。"
+            val notificationId = ("position_${stateKey}_$zone").hashCode()
+            val localSent = sendLocalNotification("持仓操作提醒：$symbol", message, notificationId)
+            var webhookSent = false
+            if (webhook.isNotBlank()) {
                 val markdown = buildString {
-                    appendLine("# 🚨 星澜 Pro · 买入价提醒")
-                    appendLine("> **$symbol 已高于你的买入价**")
+                    appendLine("# <font color=\"${if (zone == "STOP_LOSS") "warning" else "info"}\">持仓操作提醒：$symbol</font>")
+                    appendLine("> **操作结论：$action**")
                     appendLine()
-                    appendLine("**当前价格：** $priceText")
-                    appendLine("**你的买入价：** $entryText")
-                    appendLine("**高于买入价：** +${"%.2f".format(pctAbove)}%")
+                    appendLine("当前价格：**$priceText**")
+                    appendLine("买入均价：**$costText**")
+                    appendLine("持有数量：**${position.quantity}**")
+                    appendLine("浮动盈亏：**${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%**（约 ${"%.2f".format(pnlAmount)} $currency，未计手续费/税费）")
                     appendLine()
-                    appendLine("---")
-                    appendLine("> 价格观察提醒，不构成投资建议；不会自动交易。")
+                    appendLine("默认阈值：止损 -5%，止盈 +8%。")
+                    appendLine("规则化风险提醒，不保证盈利；核对行情后自行决定，不会自动下单。")
                 }
-                if (WeComNotifier().sendMarkdown(webhook, markdown).isSuccess) {
-                    crossingPrefs.edit().putBoolean(wecomStateKey, true).apply()
-                }
+                webhookSent = WeComNotifier().sendMarkdown(webhook, markdown).isSuccess
             }
+            if (localSent || webhookSent) positionPrefs.edit().putString(stateKey, zone).apply()
         }
-
         Result.success()
     }
 
