@@ -57,11 +57,15 @@ jobs:
       - name: Accept Android SDK licenses
         shell: bash
         run: |
-          set -e
-          yes | "$SDKMANAGER" --licenses || {
-            echo "::error::Failed to accept Android SDK licenses"
-            exit 1
-          }
+          set -euo pipefail
+
+          # 接受 SDK 许可；忽略 yes 因管道提前关闭产生的退出状态
+          set +o pipefail
+          yes 2>/dev/null | "$SDKMANAGER" --licenses
+          set -o pipefail
+
+          # 验证 SDK 许可状态
+          "$SDKMANAGER" --licenses </dev/null
 
       - name: Install Android SDK packages
         shell: bash
