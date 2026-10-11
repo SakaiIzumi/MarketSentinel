@@ -200,7 +200,7 @@ private fun SentinelApp(settings: SecureSettings) {
         surfaceVariant = Color(0xFF1C2738),
         error = Color(0xFFFF6B7A)
     )) {
-        Scaffold(topBar = { TopAppBar(title = { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Icon(Icons.Default.ShowChart, contentDescription = null); Column { Text("行情哨兵"); Text("MARKET SENTINEL", style = MaterialTheme.typography.labelSmall) } } }) }, bottomBar = {
+        Scaffold(topBar = { TopAppBar(title = { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Icon(Icons.Default.ShowChart, contentDescription = null); Column { Text("星澜行情"); Text("MARKET RADAR", style = MaterialTheme.typography.labelSmall) } } }) }, bottomBar = {
             NavigationBar {
                 NavigationBarItem(tab == 0, { tab = 0 }, icon = { Icon(Icons.Default.ShowChart, contentDescription = null) }, label = { Text("行情") })
                 NavigationBarItem(tab == 1, { tab = 1 }, icon = { Icon(Icons.Default.Tune, contentDescription = null) }, label = { Text("策略") })
@@ -208,13 +208,13 @@ private fun SentinelApp(settings: SecureSettings) {
             }
         }) { padding ->
             when (tab) {
-                0 -> LazyColumn(Modifier.padding(padding).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                0 -> LazyColumn(Modifier.padding(padding).fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     item {
                         Column(
                             Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             verticalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
-                            Text("你的市场，一屏掌握", style = MaterialTheme.typography.headlineMedium, color = Color(0xFFF2F6FF))
+                            Text("一眼看懂市场", style = MaterialTheme.typography.titleLarge, color = Color(0xFFF2F6FF))
                             Text("股票 · 指数 · 加密资产", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF9AAAC0))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 AssistChip(onClick = { autoRefresh = !autoRefresh }, label = { Text(if (autoRefresh) "● 自动监控中" else "自动监控已暂停") })
@@ -224,30 +224,7 @@ private fun SentinelApp(settings: SecureSettings) {
                     }
                     item { MarketOverviewCard(quotes) }
                     item { MarketSearchFilter(search = quoteSearch, onSearch = { quoteSearch = it }, filter = marketFilter, onFilter = { marketFilter = it }) }
-                    item { ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Icon(Icons.Default.Refresh, contentDescription = null); Text(if (autoRefresh) "自动刷新 · 每 " + refreshSeconds + " 秒" else "自动刷新已暂停", style = MaterialTheme.typography.titleMedium) }; Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedButton(onClick = { autoRefresh = !autoRefresh }) { Text(if (autoRefresh) "暂停自动刷新" else "开启自动刷新") }; Button(enabled = !busy, onClick = { scope.launch { refreshQuotesNow() } }) { Icon(Icons.Default.Refresh, contentDescription = null); Spacer(Modifier.width(6.dp)); Text(if (busy) "刷新中…" else "立即刷新") } } } } }
-                    item {
-                        ElevatedCard(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(20.dp),
-                            colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF132033))
-                        ) {
-                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                Text("行情连接状态", style = MaterialTheme.typography.titleMedium, color = Color(0xFFF2F6FF))
-                                Text(status, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFB9C7DA))
-                                Text("加密货币通道：$streamStatus", style = MaterialTheme.typography.bodySmall, color = if (streamStatus.contains("已连接")) Color(0xFF72E0C0) else Color(0xFFFFC078))
-                                Text("虚拟币优先使用 Binance WebSocket 实时推送；A 股使用新浪公开报价；海外股票优先 Yahoo Finance，备用 Stooq 日线可能延迟。", style = MaterialTheme.typography.bodySmall, color = Color(0xFF91A3BB))
-                            }
-                        }
-                    }
-                    item { OutlinedTextField(symbols, { symbols = it.uppercase() }, label = { Text("监控标的（逗号分隔，最多 20 个）") }, supportingText = { Text("例：BTCUSDT,ETHUSDT,AAPL,600519.SS,0700.HK,^GSPC") }, modifier = Modifier.fillMaxWidth()) }
-                    item {
-                        ElevatedCard(Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("行情状态", style = MaterialTheme.typography.titleSmall)
-                                Text(status, style = MaterialTheme.typography.bodySmall, maxLines = 5)
-                            }
-                        }
-                    }
+
                     if (quotes.isEmpty()) {
                         item {
                             ElevatedCard(
@@ -266,38 +243,65 @@ private fun SentinelApp(settings: SecureSettings) {
                     items(filteredQuotes) { q ->
                         val positive = q.changePct >= 0
                         ElevatedCard(
-                            Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(20.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
                             colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF111B2B))
                         ) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                        Text(localizedAssetName(q.symbol), style = MaterialTheme.typography.titleLarge, color = Color(0xFFF2F6FF))
-                                        Text("${q.symbol}  ·  ${q.market}", style = MaterialTheme.typography.labelMedium, color = Color(0xFF92A5BF))
-                                    }
-                                    Surface(shape = RoundedCornerShape(12.dp), color = if (positive) Color(0xFF123C35) else Color(0xFF42212B)) {
-                                        Text(
-                                            "${if (positive) "+" else ""}${"%.2f".format(q.changePct)}%",
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                            color = if (positive) Color(0xFF72E0C0) else Color(0xFFFF8290),
-                                            style = MaterialTheme.typography.titleMedium
-                                        )
-                                    }
-                                }
-                                Text(if (q.market == "CRYPTO") "${"%.8f".format(q.price)} USDT" else "%.2f".format(q.price), style = MaterialTheme.typography.headlineMedium, color = Color(0xFFF5F8FF))
-                                HorizontalDivider(color = Color(0xFF253349))
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                        Text("行情来源", style = MaterialTheme.typography.labelSmall, color = Color(0xFF8497B1))
-                                        Text(q.source, style = MaterialTheme.typography.bodySmall, color = Color(0xFFB9C7DA), maxLines = 2)
+                            Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                ) {
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                        Text(localizedAssetName(q.symbol), style = MaterialTheme.typography.titleMedium, color = Color(0xFFF2F6FF), maxLines = 1)
+                                        Text("${q.symbol} · ${if (q.market == "CRYPTO") "加密资产" else "股票/指数"}", style = MaterialTheme.typography.labelSmall, color = Color(0xFF92A5BF), maxLines = 1)
                                     }
                                     Column(horizontalAlignment = androidx.compose.ui.Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                        Text("最近更新", style = MaterialTheme.typography.labelSmall, color = Color(0xFF8497B1))
-                                        Text(java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(q.updatedAt)), style = MaterialTheme.typography.bodySmall, color = Color(0xFFB9C7DA))
+                                        Text(
+                                            if (q.market == "CRYPTO") "${"%.8f".format(q.price)} USDT" else "%.2f".format(q.price),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = Color(0xFFF5F8FF),
+                                            maxLines = 1
+                                        )
+                                        Surface(shape = RoundedCornerShape(8.dp), color = if (positive) Color(0xFF123C35) else Color(0xFF42212B)) {
+                                            Text(
+                                                "${if (positive) "+" else ""}${"%.2f".format(q.changePct)}%",
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                                color = if (positive) Color(0xFF72E0C0) else Color(0xFFFF8290),
+                                                style = MaterialTheme.typography.labelLarge
+                                            )
+                                        }
                                     }
                                 }
-                                Text("成交量：${"%.2f".format(q.volume)}", style = MaterialTheme.typography.bodySmall, color = Color(0xFF8497B1))
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                    Text(q.source, style = MaterialTheme.typography.labelSmall, color = Color(0xFF8497B1), maxLines = 1)
+                                    Text(
+                                        "更新 " + java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(q.updatedAt)),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color(0xFF8497B1),
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    item {
+                        ElevatedCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF132033))
+                        ) {
+                            Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, tint = Color(0xFF72E0C0), modifier = Modifier.size(16.dp))
+                                    Text("连接与刷新状态", style = MaterialTheme.typography.titleSmall, color = Color(0xFFF2F6FF))
+                                    Spacer(Modifier.weight(1f))
+                                    Text(if (busy) "更新中" else if (autoRefresh) "自动更新" else "已暂停", style = MaterialTheme.typography.labelSmall, color = Color(0xFF72E0C0))
+                                }
+                                Text(status, style = MaterialTheme.typography.bodySmall, color = Color(0xFFB9C7DA), maxLines = 3)
+                                Text("币价实时通道：$streamStatus", style = MaterialTheme.typography.labelSmall, color = if (streamStatus.contains("已连接")) Color(0xFF72E0C0) else Color(0xFFFFC078), maxLines = 2)
+                                Text("前台币价使用 WebSocket；股票行情可能延迟。后台定时检查约每 15 分钟一次。", style = MaterialTheme.typography.labelSmall, color = Color(0xFF91A3BB))
                             }
                         }
                     }
@@ -406,7 +410,7 @@ private fun SentinelApp(settings: SecureSettings) {
                     item { Button(onClick = {
                         settings.setWebhook(webhook); notice = "正在发送测试消息…"
                         scope.launch {
-                            val result = withContext(Dispatchers.IO) { WeComNotifier().send(webhook, "【行情哨兵】Webhook 测试消息成功；此消息不代表交易信号。") }
+                            val result = withContext(Dispatchers.IO) { WeComNotifier().send(webhook, "【星澜行情】Webhook 测试消息成功；此消息不代表交易信号。") }
                             notice = result.fold({ "发送成功，请检查企业微信群" }, { "发送失败：${it.message ?: "未知错误"}" })
                         }
                     }, modifier = Modifier.fillMaxWidth()) { Text("保存并发送测试消息") } }

@@ -53,7 +53,7 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
         for (signal in signals) {
             if (sent >= 5) break
             val key = "${signal.symbol}_${signal.kind}".replace(Regex("[^A-Za-z0-9_.-]"), "_")
-            val message = "【行情哨兵/${signal.severity}】${signal.title}\n" +
+            val message = "【星澜行情/${signal.severity}】${signal.title}\n" +
                 "标的：${signal.symbol}\n现价：${signal.price}\n规则：${signal.kind}\n" +
                 "原因：${signal.reason}\n周期：15 分钟 K 线\n" +
                 "仅为策略观察信号，不构成投资建议；不会自动交易。"
@@ -105,7 +105,7 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("行情哨兵 · $title")
+            .setContentTitle("星澜行情 · $title")
             .setContentText(message.lineSequence().firstOrNull() ?: "检测到行情观察信号")
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
