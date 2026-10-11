@@ -12,8 +12,8 @@ android {
         applicationId = "com.marketsentinel.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.7.0"
+        versionCode = 8
+        versionName = "0.8.0"
     }
     val stableStoreFile = System.getenv("ANDROID_SIGNING_STORE_FILE")
     if (!stableStoreFile.isNullOrBlank()) {
