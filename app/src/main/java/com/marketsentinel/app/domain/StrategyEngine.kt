@@ -9,11 +9,12 @@ import kotlin.math.sqrt
 
 /** Technical indicator watch rules. Alerts are informational; this engine never places orders. */
 object StrategyEngine {
-    fun evaluate(snapshot: MarketSnapshot): List<StrategySignal> {
+    fun evaluate(snapshot: MarketSnapshot, cryptoThreshold: Double = 5.0, stockThreshold: Double = 3.0): List<StrategySignal> {
         val q = snapshot.quote
+        val threshold = if (q.market == "CRYPTO") cryptoThreshold else stockThreshold
         val bars = snapshot.candles.filter { it.close > 0 && it.close.isFinite() }
         val close = bars.map { it.close }
-        if (close.size < 26) return if (abs(q.changePct) >= if (q.market == "CRYPTO") 5 else 3)
+        if (close.size < 26) return if (abs(q.changePct) >= threshold)
             listOf(StrategySignal(q.symbol, "VOLATILITY", "涨跌幅异常观察",
                 "涨跌幅 ${"%.2f".format(q.changePct)}%；历史 K 线不足，暂不输出技术指标。", q.price, severity = "HIGH"))
         else emptyList()
@@ -58,7 +59,6 @@ object StrategyEngine {
         val atrPct = atrValue?.div(q.price)?.times(100)
         if (atrPct != null && atrPct >= if (q.market == "CRYPTO") 2 else 1)
             add("ATR_HIGH", "波动率升高", "ATR/价格=${"%.2f".format(atrPct)}%，短线波动风险偏高。", "HIGH")
-        val threshold = if (q.market == "CRYPTO") 5.0 else 3.0
         if (abs(q.changePct) >= threshold) add("VOLATILITY", "涨跌幅异常观察",
             "数据源报告涨跌幅 ${"%.2f".format(q.changePct)}%，超过观察阈值 ${threshold}%。", "HIGH")
         return out.distinctBy { it.kind }.take(8)
