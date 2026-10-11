@@ -326,7 +326,7 @@ private fun SentinelApp(settings: SecureSettings) {
                     item { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         symbols.split(",").map { it.trim() }.filter { it.isNotBlank() }.forEach { symbol ->
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                                Text(symbol, style = MaterialTheme.typography.bodyLarge)
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) { Text(localizedAssetName(symbol), style = MaterialTheme.typography.bodyLarge); Text(symbol, style = MaterialTheme.typography.labelSmall, color = Color(0xFF92A5BF)) }
                                 IconButton(onClick = {
                                     symbols = symbols.split(",").map { it.trim() }.filter { it.isNotBlank() && it != symbol }.joinToString(",")
                                     settings.setSymbols(symbols)
