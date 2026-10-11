@@ -17,6 +17,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.work.*
 import com.marketsentinel.app.data.*
 import com.marketsentinel.app.domain.StrategyEngine
@@ -29,6 +31,51 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
+
+
+private fun localizedAssetName(symbol: String): String {
+    val s = symbol.uppercase()
+    return when (s) {
+        "BTCUSDT", "BTCUSD", "BTC" -> "比特币"
+        "ETHUSDT", "ETHUSD", "ETH" -> "以太坊"
+        "SOLUSDT", "SOLUSD", "SOL" -> "Solana"
+        "BNBUSDT", "BNBUSD", "BNB" -> "币安币"
+        "XRPUSDT", "XRPUSD", "XRP" -> "瑞波币"
+        "DOGEUSDT", "DOGEUSD", "DOGE" -> "狗狗币"
+        "ADAUSDT", "ADAUSD", "ADA" -> "艾达币"
+        "AVAXUSDT", "AVAXUSD", "AVAX" -> "雪崩协议"
+        "LINKUSDT", "LINKUSD", "LINK" -> "Chainlink"
+        "DOTUSDT", "DOTUSD", "DOT" -> "波卡"
+        "AAPL" -> "苹果公司"
+        "MSFT" -> "微软"
+        "NVDA" -> "英伟达"
+        "GOOGL", "GOOG" -> "谷歌"
+        "AMZN" -> "亚马逊"
+        "META" -> "Meta"
+        "TSLA" -> "特斯拉"
+        "NFLX" -> "奈飞"
+        "^GSPC" -> "标普 500 指数"
+        "^IXIC", "AIXIC" -> "纳斯达克综合指数"
+        "^DJI" -> "道琼斯工业指数"
+        "^HSI" -> "恒生指数"
+        "600519.SS" -> "贵州茅台"
+        "000001.SS" -> "上证综合指数"
+        "000001.SZ" -> "平安银行"
+        "399001.SZ" -> "深证成指"
+        "300750.SZ" -> "宁德时代"
+        "002594.SZ" -> "比亚迪"
+        "0700.HK" -> "腾讯控股"
+        "9988.HK" -> "阿里巴巴"
+        "3690.HK" -> "美团"
+        else -> when {
+            s.endsWith(".HK") -> "港股"
+            s.endsWith(".SS") || s.endsWith(".SZ") -> "A 股"
+            s.startsWith("^") -> "市场指数"
+            s.endsWith("USDT") -> "加密货币"
+            else -> "股票 / ETF"
+        }
+    }
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -107,7 +154,15 @@ private fun SentinelApp(settings: SecureSettings) {
         }
     }
 
-    MaterialTheme(colorScheme = darkColorScheme(primary = androidx.compose.ui.graphics.Color(0xFF7DD3FC))) {
+    MaterialTheme(colorScheme = darkColorScheme(
+        primary = Color(0xFF72E0C0),
+        secondary = Color(0xFF83B8FF),
+        tertiary = Color(0xFF4ADE80),
+        background = Color(0xFF080D18),
+        surface = Color(0xFF111827),
+        surfaceVariant = Color(0xFF1C2738),
+        error = Color(0xFFFF6B7A)
+    )) {
         Scaffold(topBar = { TopAppBar(title = { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Icon(Icons.Default.ShowChart, contentDescription = null); Column { Text("行情哨兵"); Text("MARKET SENTINEL", style = MaterialTheme.typography.labelSmall) } } }) }, bottomBar = {
             NavigationBar {
                 NavigationBarItem(tab == 0, { tab = 0 }, icon = { Icon(Icons.Default.ShowChart, contentDescription = null) }, label = { Text("行情") })
@@ -117,9 +172,33 @@ private fun SentinelApp(settings: SecureSettings) {
         }) { padding ->
             when (tab) {
                 0 -> LazyColumn(Modifier.padding(padding).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    item { Text("跨市场行情监控", style = MaterialTheme.typography.headlineSmall) }
+                    item {
+                        Column(
+                            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Text("你的市场，一屏掌握", style = MaterialTheme.typography.headlineMedium, color = Color(0xFFF2F6FF))
+                            Text("股票 · 指数 · 加密资产", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF9AAAC0))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                AssistChip(onClick = { autoRefresh = !autoRefresh }, label = { Text(if (autoRefresh) "● 自动监控中" else "自动监控已暂停") })
+                                AssistChip(onClick = { scope.launch { refreshQuotesNow() } }, enabled = !busy, label = { Text(if (busy) "更新中…" else "立即更新") }, leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) })
+                            }
+                        }
+                    }
                     item { ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Icon(Icons.Default.Refresh, contentDescription = null); Text(if (autoRefresh) "自动刷新 · 每 " + refreshSeconds + " 秒" else "自动刷新已暂停", style = MaterialTheme.typography.titleMedium) }; Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedButton(onClick = { autoRefresh = !autoRefresh }) { Text(if (autoRefresh) "暂停自动刷新" else "开启自动刷新") }; Button(enabled = !busy, onClick = { scope.launch { refreshQuotesNow() } }) { Icon(Icons.Default.Refresh, contentDescription = null); Spacer(Modifier.width(6.dp)); Text(if (busy) "刷新中…" else "立即刷新") } } } } }
-                    item { Text("数据源：Binance（加密货币）；A 股新浪公开报价；海外股票/指数优先 Yahoo Finance，失败时回退 Stooq 日线。备用日线可能延迟，不代表实时成交价。无需数据源 API Key。") }
+                    item {
+                        ElevatedCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF132033))
+                        ) {
+                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Text("行情连接状态", style = MaterialTheme.typography.titleMedium, color = Color(0xFFF2F6FF))
+                                Text(status, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFB9C7DA))
+                                Text("虚拟币：Binance 公共行情；A 股：新浪；海外股票：Yahoo Finance，备用 Stooq 日线可能延迟。当前为定时拉取，不等同于 WebSocket 实时推送。", style = MaterialTheme.typography.bodySmall, color = Color(0xFF91A3BB))
+                            }
+                        }
+                    }
                     item { OutlinedTextField(symbols, { symbols = it.uppercase() }, label = { Text("监控标的（逗号分隔，最多 20 个）") }, supportingText = { Text("例：BTCUSDT,ETHUSDT,AAPL,600519.SS,0700.HK,^GSPC") }, modifier = Modifier.fillMaxWidth()) }
                     item {
                         ElevatedCard(Modifier.fillMaxWidth()) {
@@ -129,15 +208,59 @@ private fun SentinelApp(settings: SecureSettings) {
                             }
                         }
                     }
-                    items(quotes) { q -> ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(q.symbol, style = MaterialTheme.typography.titleMedium)
-                            Text("${if (q.changePct >= 0) "+" else ""}${"%.2f".format(q.changePct)}%", color = if (q.changePct >= 0) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.error)
+                    if (quotes.isEmpty()) {
+                        item {
+                            ElevatedCard(
+                                Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(20.dp),
+                                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF111827))
+                            ) {
+                                Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Icon(Icons.Default.ShowChart, contentDescription = null, tint = Color(0xFF72E0C0), modifier = Modifier.size(34.dp))
+                                    Text(if (busy) "正在连接行情…" else "还没有行情数据", style = MaterialTheme.typography.titleLarge)
+                                    Text("点击“立即更新”检查网络或标的代码。获取失败时不会用虚构价格填充。", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF9AAAC0))
+                                }
+                            }
                         }
-                        Text(if (q.market == "CRYPTO") "${"%.8f".format(q.price)} USDT" else "%.2f".format(q.price), style = MaterialTheme.typography.headlineSmall)
-                        Text("${q.market} · ${q.source}", style = MaterialTheme.typography.bodySmall)
-                        Text("成交量：${"%.2f".format(q.volume)} · 更新：${java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(q.updatedAt))}", style = MaterialTheme.typography.bodySmall)
-                    } } }
+                    }
+                    items(quotes) { q ->
+                        val positive = q.changePct >= 0
+                        ElevatedCard(
+                            Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF111B2B))
+                        ) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Text(localizedAssetName(q.symbol), style = MaterialTheme.typography.titleLarge, color = Color(0xFFF2F6FF))
+                                        Text("${q.symbol}  ·  ${q.market}", style = MaterialTheme.typography.labelMedium, color = Color(0xFF92A5BF))
+                                    }
+                                    Surface(shape = RoundedCornerShape(12.dp), color = if (positive) Color(0xFF123C35) else Color(0xFF42212B)) {
+                                        Text(
+                                            "${if (positive) "+" else ""}${"%.2f".format(q.changePct)}%",
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                            color = if (positive) Color(0xFF72E0C0) else Color(0xFFFF8290),
+                                            style = MaterialTheme.typography.titleMedium
+                                        )
+                                    }
+                                }
+                                Text(if (q.market == "CRYPTO") "${"%.8f".format(q.price)} USDT" else "%.2f".format(q.price), style = MaterialTheme.typography.headlineMedium, color = Color(0xFFF5F8FF))
+                                HorizontalDivider(color = Color(0xFF253349))
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Text("行情来源", style = MaterialTheme.typography.labelSmall, color = Color(0xFF8497B1))
+                                        Text(q.source, style = MaterialTheme.typography.bodySmall, color = Color(0xFFB9C7DA), maxLines = 2)
+                                    }
+                                    Column(horizontalAlignment = androidx.compose.ui.Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Text("最近更新", style = MaterialTheme.typography.labelSmall, color = Color(0xFF8497B1))
+                                        Text(java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(q.updatedAt)), style = MaterialTheme.typography.bodySmall, color = Color(0xFFB9C7DA))
+                                    }
+                                }
+                                Text("成交量：${"%.2f".format(q.volume)}", style = MaterialTheme.typography.bodySmall, color = Color(0xFF8497B1))
+                            }
+                        }
+                    }
                 }
                 1 -> LazyColumn(Modifier.padding(padding).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item { Text("技术策略与风险观察", style = MaterialTheme.typography.headlineSmall) }
@@ -153,7 +276,7 @@ private fun SentinelApp(settings: SecureSettings) {
                 }
                 else -> LazyColumn(Modifier.padding(padding).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item { Text("自选标的与刷新", style = MaterialTheme.typography.headlineSmall) }
-                    item { Text("支持 A 股、港股、美股、指数及加密货币。A 股格式：600519.SS（沪市）、000001.SZ（深市）；指数代码请使用 ^IXIC 等格式。最多 20 个标的。", style = MaterialTheme.typography.bodyMedium) }
+                    item { Text("支持 A 股、港股、美股、指数及加密货币。A 股格式：600519.SS（沪市）、000001.SZ（深市）；指数代码请使用 ^IXIC 等格式。最多 20 个标的。名称会显示中文别名，代码仍保留用于准确识别。", style = MaterialTheme.typography.bodyMedium) }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         OutlinedTextField(newSymbol, { newSymbol = it.uppercase() }, label = { Text("添加标的代码") }, placeholder = { Text("AAPL / 600519.SS / SOLUSDT") }, modifier = Modifier.weight(1f), singleLine = true)
                         Button(onClick = {
@@ -216,7 +339,7 @@ private fun SentinelApp(settings: SecureSettings) {
                     } }
                     item { Text("刷新间隔（前台运行时）", style = MaterialTheme.typography.titleMedium) }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(30, 60, 120, 300).forEach { seconds ->
+                        listOf(15, 30, 60, 120, 300).forEach { seconds ->
                             if (refreshSeconds == seconds) Button(onClick = { refreshSeconds = seconds; settings.setRefreshSeconds(seconds) }) { Text(seconds.toString() + "秒") }
                             else OutlinedButton(onClick = { refreshSeconds = seconds; settings.setRefreshSeconds(seconds) }) { Text(seconds.toString() + "秒") }
                         }
@@ -248,7 +371,7 @@ private fun SentinelApp(settings: SecureSettings) {
                     }, modifier = Modifier.fillMaxWidth()) { Text("保存并发送测试消息") } }
                     item { Text(notice, style = MaterialTheme.typography.bodySmall) }
                     item { Divider() }
-                    item { Text("前台刷新支持 30 秒起；切到后台后 Android 省电策略可能暂停或延迟刷新。系统后台告警仍由 WorkManager 执行，周期最短约 15 分钟。公开行情接口可能限流，标的越多越容易触发限制。") }
+                    item { Text("前台刷新支持 15 秒起；这是定时请求而非逐笔实时推送。切到后台后 Android 省电策略可能暂停或延迟刷新。系统后台告警仍由 WorkManager 执行，周期最短约 15 分钟。公开行情接口可能限流，标的越多越容易触发限制。") }
                 }
             }
         }
