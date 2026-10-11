@@ -94,6 +94,7 @@ private fun SentinelApp(settings: SecureSettings) {
     var symbols by remember { mutableStateOf(settings.getSymbols()) }
     var webhook by remember { mutableStateOf(settings.getWebhook()) }
     var status by remember { mutableStateOf("首次使用请联网刷新行情。") }
+    var streamStatus by remember { mutableStateOf("等待加密货币实时连接…") }
     var busy by remember { mutableStateOf(false) }
     var quotes by remember { mutableStateOf(emptyList<MarketQuote>()) }
     var signals by remember { mutableStateOf(emptyList<StrategySignal>()) }
@@ -142,6 +143,20 @@ private fun SentinelApp(settings: SecureSettings) {
         } finally {
             busy = false
         }
+    }
+
+    DisposableEffect(symbols, repo) {
+        val cryptoSymbols = symbols.split(",").map { it.trim().uppercase() }
+            .filter { it.isNotBlank() && it.endsWith("USDT") }
+        val socket = repo.openCryptoTickerStream(
+            cryptoSymbols,
+            onQuote = { quote ->
+                quotes = (quotes.filterNot { it.symbol == quote.symbol } + quote)
+                    .sortedBy { cryptoSymbols.indexOf(it.symbol).let { index -> if (index < 0) Int.MAX_VALUE else index } }
+            },
+            onStatus = { message -> streamStatus = message }
+        )
+        onDispose { socket?.close(1000, "watchlist changed") }
     }
 
     LaunchedEffect(Unit) { refreshQuotesNow() }
@@ -195,7 +210,8 @@ private fun SentinelApp(settings: SecureSettings) {
                             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                 Text("行情连接状态", style = MaterialTheme.typography.titleMedium, color = Color(0xFFF2F6FF))
                                 Text(status, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFB9C7DA))
-                                Text("虚拟币：Binance 公共行情；A 股：新浪；海外股票：Yahoo Finance，备用 Stooq 日线可能延迟。当前为定时拉取，不等同于 WebSocket 实时推送。", style = MaterialTheme.typography.bodySmall, color = Color(0xFF91A3BB))
+                                Text("加密货币通道：$streamStatus", style = MaterialTheme.typography.bodySmall, color = if (streamStatus.contains("已连接")) Color(0xFF72E0C0) else Color(0xFFFFC078))
+                                Text("虚拟币优先使用 Binance WebSocket 实时推送；A 股使用新浪公开报价；海外股票优先 Yahoo Finance，备用 Stooq 日线可能延迟。", style = MaterialTheme.typography.bodySmall, color = Color(0xFF91A3BB))
                             }
                         }
                     }
