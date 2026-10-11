@@ -19,9 +19,11 @@ class MarketRepository {
         val entered = rawSymbol.trim().uppercase()
         val symbol = if (entered == "AIXIC") "^IXIC" else entered
         require(symbol.matches(Regex("[A-Z0-9.^=_-]{1,24}"))) { "标的代码格式不正确：" + rawSymbol }
-        if (isCryptoSymbol(symbol)) crypto(symbol)
-        else if (isChinaSymbol(symbol)) chinaQuote(symbol)
-        else globalQuote(symbol)
+        when {
+            isCryptoSymbol(symbol) -> crypto(symbol)
+            isChinaSymbol(symbol) -> chinaQuote(symbol)
+            else -> globalQuote(symbol)
+        }
     }
 
     /**
