@@ -115,7 +115,7 @@ class MainActivity:ComponentActivity(){override fun onCreate(savedInstanceState:
  var note by remember(a.id){mutableStateOf(db.note(u,a.id))};var saved by remember(a.id){mutableStateOf(db.marked(u,a.id))};var answer by remember(a.id){mutableIntStateOf(-1)};var result by remember(a.id){mutableStateOf("")}
  val q=when(a.id){1->"恒星主要通过什么过程释放能量？";3->"四季变化的关键原因是什么？";9->"最小权限原则意味着什么？";10->"可疑邮件应如何处理？";11->"怎样更有效地学习词汇？";else->"阅读后最重要的学习方法是什么？"}
  val opts=when(a.id){1->listOf("化学燃烧","核聚变","反射行星光");3->listOf("地轴倾斜","月球引力","太阳距离变化");9->listOf("所有人都是管理员","只授予任务所需权限","共享所有密码");10->listOf("立刻点击链接","通过可信渠道独立确认","回复个人密码");11->listOf("只背翻译","在语境中练习并主动回忆","永不复习");else->listOf("读完就忘记","理解内容并主动回忆","只看标题")}
- val correct=if(a.id==1)1 else 0
+ val correct=if(a.id==3)0 else 1
  LazyColumn(contentPadding=PaddingValues(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
  item{TextButton(onClick=back){Icon(Icons.Default.ArrowBack,null);Text(" 返回")};Text(a.subject.uppercase(),fontSize=11.sp,color=mint,letterSpacing=2.sp);Text(a.title,fontSize=29.sp,fontWeight=FontWeight.Bold);Text(a.summary,fontSize=17.sp,color=violet)}
  item{Text(a.body,fontSize=16.sp,lineHeight=28.sp)}
