@@ -230,10 +230,36 @@ class MarketRepository {
         val volume = fields[8].toDoubleOrNull() ?: 0.0
         require(price > 0 && price.isFinite()) { "A 股暂时无有效报价（可能停牌或休市）" }
         val change = if (previous > 0) (price - previous) / previous * 100 else 0.0
-        val candle = Candle(System.currentTimeMillis(), price, price, price, price, volume)
+        val fallbackCandle = Candle(System.currentTimeMillis(), price, price, price, price, volume)
+        // 额外拉取新浪 15 分钟历史 K 线，供 EMA/MACD/RSI 策略使用。
+        // 如果历史接口不可用，只保留真实快照，不伪造历史数据。
+        val candles = runCatching {
+            val klineUrl = "https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData" +
+                "?symbol=" + sinaCode + "&scale=15&ma=5&datalen=242"
+            val rows = array(klineUrl)
+            rows.mapNotNull { row ->
+                val item = row as? JSONObject ?: return@mapNotNull null
+                val closeValue = item.optString("close").toDoubleOrNull() ?: return@mapNotNull null
+                if (closeValue <= 0 || !closeValue.isFinite()) return@mapNotNull null
+                val openValue = item.optString("open").toDoubleOrNull() ?: closeValue
+                val highValue = item.optString("high").toDoubleOrNull() ?: maxOf(openValue, closeValue)
+                val lowValue = item.optString("low").toDoubleOrNull() ?: minOf(openValue, closeValue)
+                val volumeValue = item.optString("volume").toDoubleOrNull() ?: 0.0
+                val dateText = item.optString("day")
+                val timestamp = listOf("yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd").firstNotNullOfOrNull { pattern ->
+                    runCatching {
+                        java.text.SimpleDateFormat(pattern, java.util.Locale.US).apply {
+                            timeZone = java.util.TimeZone.getTimeZone("Asia/Shanghai")
+                        }.parse(dateText)?.time
+                    }.getOrNull()
+                } ?: return@mapNotNull null
+                Candle(timestamp, openValue, highValue, lowValue, closeValue, volumeValue)
+            }.filter { it.close > 0 }.sortedBy { it.timestamp }
+        }.getOrDefault(emptyList())
+        val usableCandles = candles.takeIf { it.size >= 2 } ?: listOf(fallbackCandle)
         return MarketSnapshot(
-            MarketQuote(symbol, "A股", price, change, volume, source = "新浪公开行情 · 实时报价"),
-            listOf(candle)
+            MarketQuote(symbol, "A股", price, change, volume, source = "新浪公开行情 · 报价/15m K线"),
+            usableCandles
         )
     }
 
