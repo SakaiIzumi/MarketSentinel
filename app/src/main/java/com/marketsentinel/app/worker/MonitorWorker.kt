@@ -1,8 +1,18 @@
 package com.marketsentinel.app.worker
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.marketsentinel.app.MainActivity
 import com.marketsentinel.app.data.MarketRepository
 import com.marketsentinel.app.data.SecureSettings
 import com.marketsentinel.app.data.WeComNotifier
@@ -13,30 +23,105 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 
+/**
+ * Background snapshot monitor. WorkManager runs periodically even after the Activity is closed.
+ * Android may delay periodic work under Doze/battery restrictions; this is not a tick-by-tick feed.
+ */
 class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val settings = SecureSettings(applicationContext)
         val webhook = settings.getWebhook()
-        if (webhook.isBlank()) return@withContext Result.success()
-        val symbols = settings.getSymbols().split(",").map { it.trim() }.filter { it.isNotBlank() }.distinct().take(20)
+        val symbols = settings.getSymbols().split(",").map { it.trim().uppercase() }
+            .filter { it.isNotBlank() }.distinct().take(20)
         if (symbols.isEmpty()) return@withContext Result.success()
+
         val repo = MarketRepository()
-        val fetched = coroutineScope { symbols.map { s -> async { s to repo.snapshot(s) } }.awaitAll() }
-        val signals = fetched.flatMap { (_, result) -> result.getOrNull()?.let { StrategyEngine.evaluate(it, settings.getCryptoThreshold(), settings.getStockThreshold()) }.orEmpty() }
-            .filter { it.severity == "HIGH" || it.severity == "MEDIUM" }
+        val fetched = coroutineScope {
+            symbols.map { symbol -> async { symbol to repo.snapshot(symbol) } }.awaitAll()
+        }
+        if (fetched.all { it.second.isFailure }) return@withContext Result.retry()
+
+        val signals = fetched.flatMap { (_, result) ->
+            result.getOrNull()?.let {
+                StrategyEngine.evaluate(it, settings.getCryptoThreshold(), settings.getStockThreshold())
+            }.orEmpty()
+        }.filter { it.severity == "HIGH" || it.severity == "MEDIUM" }
+
         val prefs = applicationContext.getSharedPreferences("alert_dedupe", Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
         var sent = 0
         for (signal in signals) {
             if (sent >= 5) break
             val key = "${signal.symbol}_${signal.kind}".replace(Regex("[^A-Za-z0-9_.-]"), "_")
-            if (now - prefs.getLong(key, 0L) < 4 * 60 * 60 * 1000L) continue
-            val msg = "【行情哨兵/${signal.severity}】${signal.title}\n标的：${signal.symbol}\n现价：${signal.price}\n规则：${signal.kind}\n原因：${signal.reason}\n周期：15 分钟 K 线\n仅为策略观察信号，不构成投资建议；不会自动交易。"
-            if (WeComNotifier().send(webhook, msg).isSuccess) {
-                prefs.edit().putLong(key, now).apply()
-                sent++
+            val message = "【行情哨兵/${signal.severity}】${signal.title}\n" +
+                "标的：${signal.symbol}\n现价：${signal.price}\n规则：${signal.kind}\n" +
+                "原因：${signal.reason}\n周期：15 分钟 K 线\n" +
+                "仅为策略观察信号，不构成投资建议；不会自动交易。"
+
+            // 手机本地通知独立于企业微信 Webhook；用户不配置 Webhook 也能收到提醒。
+            val localKey = key + "_local"
+            if (now - prefs.getLong(localKey, 0L) >= 4 * 60 * 60 * 1000L) {
+                val notified = sendLocalNotification(signal.title, message, key.hashCode())
+                if (notified) {
+                    prefs.edit().putLong(localKey, now).apply()
+                    sent++
+                }
+            }
+
+            // 企业微信群机器人通知为可选项，与手机通知分别去重。
+            if (webhook.isNotBlank()) {
+                val webhookKey = key + "_wecom"
+                if (now - prefs.getLong(webhookKey, 0L) >= 4 * 60 * 60 * 1000L) {
+                    if (WeComNotifier().send(webhook, message).isSuccess) {
+                        prefs.edit().putLong(webhookKey, now).apply()
+                        sent++
+                    }
+                }
             }
         }
-        if (fetched.all { it.second.isFailure }) Result.retry() else Result.success()
+        Result.success()
+    }
+
+    private fun sendLocalNotification(title: String, message: String, notificationId: Int): Boolean {
+        val context = applicationContext
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "行情风险提醒", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "股票与加密货币监控策略触发时发送提醒"
+                }
+            )
+        }
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return false
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("行情哨兵 · $title")
+            .setContentText(message.lineSequence().firstOrNull() ?: "检测到行情观察信号")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .build()
+        return try {
+            NotificationManagerCompat.from(context).notify(notificationId, notification)
+            true
+        } catch (_: SecurityException) {
+            false
+        }
+    }
+
+    companion object {
+        private const val CHANNEL_ID = "market_sentinel_alerts"
     }
 }
