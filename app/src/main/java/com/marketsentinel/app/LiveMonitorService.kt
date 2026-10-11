@@ -121,7 +121,7 @@ class LiveMonitorService : Service() {
                 pnlPct >= 8.0 -> "TAKE_PROFIT"
                 else -> "IN_RANGE"
             }
-            val prefs = getSharedPreferences("position_alert_states", MODE_PRIVATE)
+            val prefs = getSharedPreferences("position_webhook_alert_states", MODE_PRIVATE)
             val key = quote.symbol.replace(Regex("[^A-Za-z0-9_.-]"), "_")
             val oldZone = prefs.getString(key, "IN_RANGE")
             if (zone == "IN_RANGE") {
