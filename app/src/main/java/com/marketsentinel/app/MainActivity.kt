@@ -399,19 +399,19 @@ private fun SentinelApp(settings: SecureSettings) {
                     }
                     item { Button(onClick = {
                         val entries = symbols.split(",").map { it.trim().uppercase() }.filter { it.isNotBlank() }
-                        val parsed = entries.mapNotNull { symbol ->
+                        val invalidSymbol = entries.firstOrNull { symbol ->
                             val raw = purchasePriceTexts[symbol]?.trim().orEmpty()
-                            if (raw.isBlank()) symbol to null
-                            else {
-                                val value = raw.toDoubleOrNull()
-                                if (value == null || !value.isFinite() || value <= 0) return@Button.also { notice = "买入价格式无效：请填写大于 0 的数字，或留空关闭提醒。" }
-                                symbol to value
+                            raw.isNotBlank() && (raw.toDoubleOrNull()?.let { it.isFinite() && it > 0 } != true)
+                        }
+                        if (invalidSymbol != null) {
+                            notice = "买入价格式无效（$invalidSymbol）：请填写大于 0 的数字，或留空关闭提醒。"
+                        } else {
+                            entries.forEach { symbol ->
+                                val raw = purchasePriceTexts[symbol]?.trim().orEmpty()
+                                settings.setPurchasePrice(symbol, if (raw.isBlank()) null else raw.toDoubleOrNull())
                             }
+                            notice = "买入价设置已保存；后台会在下一次定时检查时生效。"
                         }
-                        entries.forEach { symbol ->
-                            settings.setPurchasePrice(symbol, parsed.firstOrNull { it.first == symbol }?.second)
-                        }
-                        notice = "买入价设置已保存；后台会在下一次定时检查时生效。"
                     }, modifier = Modifier.fillMaxWidth()) { Text("保存买入价提醒") } }
                     item { Text("行情刷新与后台监控", style = MaterialTheme.typography.titleMedium) }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
