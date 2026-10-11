@@ -142,6 +142,9 @@ private fun SentinelApp(settings: SecureSettings) {
     var symbols by remember { mutableStateOf(settings.getSymbols()) }
     var webhook by remember { mutableStateOf(settings.getWebhook()) }
     var purchasePriceTexts = remember { androidx.compose.runtime.mutableStateMapOf<String, String>().apply { settings.getPurchasePrices().forEach { (symbol, price) -> put(symbol, price.toString()) } } }
+    var holdingQuantityTexts = remember { androidx.compose.runtime.mutableStateMapOf<String, String>().apply { settings.getHoldingQuantities().forEach { (symbol, quantity) -> put(symbol, quantity.toString()) } } }
+    var remoteStockMatches by remember { mutableStateOf(emptyList<AssetSearchResult>()) }
+    var stockSearchStatus by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("首次使用请联网刷新行情。") }
     var streamStatus by remember { mutableStateOf("等待加密货币实时连接…") }
     var busy by remember { mutableStateOf(false) }
@@ -221,6 +224,25 @@ private fun SentinelApp(settings: SecureSettings) {
             onStatus = { message -> streamStatus = message }
         )
         onDispose { socket?.close(1000, "watchlist changed") }
+    }
+
+    LaunchedEffect(newSymbol) {
+        val query = newSymbol.trim()
+        remoteStockMatches = emptyList()
+        if (query.isBlank() || query.length < 2) {
+            stockSearchStatus = ""
+        } else {
+            delay(350)
+            try {
+                val found = withContext(Dispatchers.IO) { repo.searchChinaStocks(query) }
+                if (newSymbol.trim() == query) {
+                    remoteStockMatches = found
+                    stockSearchStatus = if (found.isEmpty()) "未找到 A 股；尝试完整名称、简称/拼音或 6 位代码。" else "在线搜索找到 ${found.size} 个 A 股结果。"
+                }
+            } catch (_: Exception) {
+                if (newSymbol.trim() == query) stockSearchStatus = "在线 A 股搜索暂不可用；可直接输入代码，例如 600519.SS。"
+            }
+        }
     }
 
     LaunchedEffect(Unit) { refreshQuotesNow() }
@@ -368,13 +390,13 @@ private fun SentinelApp(settings: SecureSettings) {
                     item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("自选", "提醒", "策略", "通知").forEach { section -> FilterChip(selected = settingsSection == section, onClick = { settingsSection = section }, label = { Text(section) }, modifier = Modifier.weight(1f)) } } }
                     if (settingsSection == "自选") {
                     item { Text("自选标的与刷新", style = MaterialTheme.typography.headlineSmall) }
-                    item { Text("支持 A 股、港股、美股、指数及加密货币。A 股格式：600519.SS（沪市）、000001.SZ（深市）；指数代码请使用 ^IXIC 等格式。最多 20 个标的。名称会显示中文别名，代码仍保留用于准确识别。", style = MaterialTheme.typography.bodyMedium) }
+                    item { Text("支持 A 股、港股、美股、指数及加密货币。A 股格式：600519.SS（沪市）、000001.SZ（深市）；指数代码请使用 ^IXIC 等格式。最多 20 个标的。支持在线搜索 A 股中文名称/简称/代码；公开行情源可能延迟或暂时不可用。", style = MaterialTheme.typography.bodyMedium) }
                     item {
                         OutlinedTextField(
                             value = newSymbol,
                             onValueChange = { newSymbol = it.take(40) },
                             label = { Text("搜索资产名称或代码") },
-                            placeholder = { Text("试试：比特币、英伟达、腾讯、BTC、ETH") },
+                            placeholder = { Text("试试：茅台、比亚迪、600519、BTC、ETH") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
                             leadingIcon = { Icon(Icons.Default.ShowChart, contentDescription = null) },
@@ -383,14 +405,20 @@ private fun SentinelApp(settings: SecureSettings) {
                     }
                     item {
                         val query = newSymbol.trim()
-                        val matches = watchlistAssetCatalog.filter { asset ->
+                        val localMatches = watchlistAssetCatalog.filter { asset ->
                             query.isBlank() ||
                                 asset.name.contains(query, ignoreCase = true) ||
                                 asset.symbol.contains(query, ignoreCase = true) ||
                                 asset.category.contains(query, ignoreCase = true)
-                        }.take(if (query.isBlank()) 8 else 12)
+                        }
+                        val onlineMatches = remoteStockMatches.map { WatchlistAsset(it.name, it.symbol, it.category) }
+                        val matches = (if (query.isBlank()) localMatches else onlineMatches + localMatches)
+                            .distinctBy { it.symbol }.take(if (query.isBlank()) 8 else 12)
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(if (query.isBlank()) "热门资产 · 点击添加" else "搜索结果（名称和代码均可匹配）", style = MaterialTheme.typography.titleSmall, color = Color(0xFFB9C7DA))
+                            if (query.isNotBlank() && stockSearchStatus.isNotBlank()) {
+                                Text(stockSearchStatus, style = MaterialTheme.typography.bodySmall, color = Color(0xFF92A5BF))
+                            }
                             matches.forEach { asset ->
                                 val alreadyAdded = asset.symbol in symbols.split(",").map { it.trim() }
                                 Surface(
@@ -492,35 +520,54 @@ private fun SentinelApp(settings: SecureSettings) {
                     } }
                     }
                     if (settingsSection == "提醒") {
-                    item { Text("价格提醒", style = MaterialTheme.typography.headlineSmall) }
-                    item { Text("给每个自选标的填写你的买入价格。行情高于买入价时，App 会发送手机通知，并在已配置 Webhook 时发送企业微信提醒；首次高于时提醒一次，跌回买入价以下后再次突破才会重新提醒。留空表示关闭该标的的买入价提醒。", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFB9C7DA)) }
+                    item { Text("我的持仓与个性化买卖提醒", style = MaterialTheme.typography.headlineSmall) }
+                    item { Text("每个标的填写买入均价和持有数量。系统会计算持仓盈亏，并按默认止损 -5%、止盈 +8% 发出明确提醒。这是起步用的默认规则，不是盈利保证。股票数量按股/份、加密货币数量按币填写；买入均价和数量都留空可清除持仓。", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFB9C7DA)) }
                     items(symbols.split(",").map { it.trim().uppercase() }.filter { it.isNotBlank() }) { symbol ->
-                        OutlinedTextField(
-                            value = purchasePriceTexts[symbol] ?: "",
-                            onValueChange = { purchasePriceTexts[symbol] = it },
-                            label = { Text(localizedAssetName(symbol) + " · " + symbol + " 买入价") },
-                            placeholder = { Text(if (symbol.endsWith("USDT")) "例如 65000.00 USDT" else "例如 180.50") },
-                            supportingText = { Text("输入大于 0 的价格；加密货币按 USDT 计价") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(localizedAssetName(symbol) + " · " + symbol, style = MaterialTheme.typography.titleSmall)
+                            OutlinedTextField(
+                                value = purchasePriceTexts[symbol] ?: "",
+                                onValueChange = { purchasePriceTexts[symbol] = it },
+                                label = { Text("买入均价") },
+                                placeholder = { Text(if (symbol.endsWith("USDT")) "例如 65000.00 USDT" else "例如 180.50") },
+                                supportingText = { Text("每股/每币成本价") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = holdingQuantityTexts[symbol] ?: "",
+                                onValueChange = { holdingQuantityTexts[symbol] = it },
+                                label = { Text(if (symbol.endsWith("USDT")) "持有数量（币）" else "持有数量（股/份）") },
+                                placeholder = { Text(if (symbol.endsWith("USDT")) "例如 0.25" else "例如 100") },
+                                supportingText = { Text("输入大于 0 的持有数量") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                        }
                     }
                     item { Button(onClick = {
                         val entries = symbols.split(",").map { it.trim().uppercase() }.filter { it.isNotBlank() }
                         val invalidSymbol = entries.firstOrNull { symbol ->
-                            val raw = purchasePriceTexts[symbol]?.trim().orEmpty()
-                            raw.isNotBlank() && (raw.toDoubleOrNull()?.let { it.isFinite() && it > 0 } != true)
+                            val priceRaw = purchasePriceTexts[symbol]?.trim().orEmpty()
+                            val quantityRaw = holdingQuantityTexts[symbol]?.trim().orEmpty()
+                            val price = priceRaw.toDoubleOrNull()
+                            val quantity = quantityRaw.toDoubleOrNull()
+                            (priceRaw.isBlank() != quantityRaw.isBlank()) ||
+                                (priceRaw.isNotBlank() && (price?.let { it.isFinite() && it > 0 } != true)) ||
+                                (quantityRaw.isNotBlank() && (quantity?.let { it.isFinite() && it > 0 } != true))
                         }
                         if (invalidSymbol != null) {
-                            notice = "买入价格式无效（$invalidSymbol）：请填写大于 0 的数字，或留空关闭提醒。"
+                            notice = "$invalidSymbol 持仓设置无效：买入均价和数量必须同时填写且都大于 0；清除时请同时留空。"
                         } else {
                             entries.forEach { symbol ->
-                                val raw = purchasePriceTexts[symbol]?.trim().orEmpty()
-                                settings.setPurchasePrice(symbol, if (raw.isBlank()) null else raw.toDoubleOrNull())
+                                val priceRaw = purchasePriceTexts[symbol]?.trim().orEmpty()
+                                val quantityRaw = holdingQuantityTexts[symbol]?.trim().orEmpty()
+                                settings.setPurchasePrice(symbol, if (priceRaw.isBlank()) null else priceRaw.toDoubleOrNull())
+                                settings.setHoldingQuantity(symbol, if (quantityRaw.isBlank()) null else quantityRaw.toDoubleOrNull())
                             }
-                            notice = "买入价设置已保存；后台会在下一次定时检查时生效。"
+                            notice = "持仓均价与数量已保存；后台会计算盈亏并发送个性化提醒。"
                         }
-                    }, modifier = Modifier.fillMaxWidth()) { Text("保存买入价提醒") } }
+                    }, modifier = Modifier.fillMaxWidth()) { Text("保存持仓与买卖提醒") } }
                     }
                     if (settingsSection == "策略") {
                     item { Text("行情刷新与后台监控", style = MaterialTheme.typography.titleMedium) }
