@@ -36,7 +36,7 @@ class MarketRepository {
             Candle(r.optLong(0), o, h, l, c, r.optString(5).toDoubleOrNull() ?: 0.0)
         }
         require(price > 0 && price.isFinite()) { "Binance 返回无效价格" }
-        MarketSnapshot(MarketQuote(symbol, "CRYPTO", price, change, volume, source = "Binance 公共现货 API · 15m"), candles)
+        return MarketSnapshot(MarketQuote(symbol, "CRYPTO", price, change, volume, source = "Binance 公共现货 API · 15m"), candles)
     }
 
     private fun yahoo(symbol: String): MarketSnapshot {
@@ -71,7 +71,7 @@ class MarketRepository {
             symbol.startsWith("^") -> "海外指数"
             else -> "美股/ETF"
         }
-        MarketSnapshot(MarketQuote(symbol, market, price, if (previous > 0) (price-previous)/previous*100 else 0.0,
+        return MarketSnapshot(MarketQuote(symbol, market, price, if (previous > 0) (price-previous)/previous*100 else 0.0,
             last.volume, source = "Yahoo Finance Chart（非官方，可能延迟）"), candles)
     }
 
