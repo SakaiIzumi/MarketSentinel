@@ -137,6 +137,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun SentinelApp(settings: SecureSettings) {
     var tab by remember { mutableIntStateOf(0) }
+    var settingsSection by remember { mutableStateOf("自选") }
+    var snapshots by remember { mutableStateOf(emptyList<MarketSnapshot>()) }
     var symbols by remember { mutableStateOf(settings.getSymbols()) }
     var webhook by remember { mutableStateOf(settings.getWebhook()) }
     var purchasePriceTexts = remember { androidx.compose.runtime.mutableStateMapOf<String, String>().apply { settings.getPurchasePrices().forEach { (symbol, price) -> put(symbol, price.toString()) } } }
@@ -181,7 +183,9 @@ private fun SentinelApp(settings: SecureSettings) {
             val results = withContext(Dispatchers.IO) {
                 coroutineScope { list.map { symbol -> async { symbol to repo.snapshot(symbol) } }.awaitAll() }
             }
-            val snapshots = results.mapNotNull { it.second.getOrNull() }
+            val freshSnapshots = results.mapNotNull { it.second.getOrNull() }
+            snapshots = freshSnapshots
+            val snapshots = freshSnapshots
             val successful = snapshots.map { it.quote.symbol }.toSet()
             val merged = quotes.associateBy { it.symbol }.toMutableMap()
             snapshots.forEach { merged[it.quote.symbol] = it.quote }
@@ -357,7 +361,10 @@ private fun SentinelApp(settings: SecureSettings) {
                     } } }
                     item { OutlinedButton(onClick = { tab = 2 }, modifier = Modifier.fillMaxWidth()) { Text("配置企业微信通知") } }
                 }
-                else -> LazyColumn(Modifier.padding(padding).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                else -> LazyColumn(Modifier.padding(padding).fillMaxSize().padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    item { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { Text("设置中心", style = MaterialTheme.typography.headlineSmall); Text("按用途分类配置，修改后点击对应保存按钮。", style = MaterialTheme.typography.bodySmall, color = Color(0xFF92A5BF)) } }
+                    item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("自选", "提醒", "策略", "通知").forEach { section -> FilterChip(selected = settingsSection == section, onClick = { settingsSection = section }, label = { Text(section) }, modifier = Modifier.weight(1f)) } } }
+                    if (settingsSection == "自选") {
                     item { Text("自选标的与刷新", style = MaterialTheme.typography.headlineSmall) }
                     item { Text("支持 A 股、港股、美股、指数及加密货币。A 股格式：600519.SS（沪市）、000001.SZ（深市）；指数代码请使用 ^IXIC 等格式。最多 20 个标的。名称会显示中文别名，代码仍保留用于准确识别。", style = MaterialTheme.typography.bodyMedium) }
                     item {
@@ -481,8 +488,9 @@ private fun SentinelApp(settings: SecureSettings) {
                             HorizontalDivider()
                         }
                     } }
-                    item { Divider() }
-                    item { Text("买入价提醒", style = MaterialTheme.typography.headlineSmall) }
+                    }
+                    if (settingsSection == "提醒") {
+                    item { Text("价格提醒", style = MaterialTheme.typography.headlineSmall) }
                     item { Text("给每个自选标的填写你的买入价格。行情高于买入价时，App 会发送手机通知，并在已配置 Webhook 时发送企业微信提醒；首次高于时提醒一次，跌回买入价以下后再次突破才会重新提醒。留空表示关闭该标的的买入价提醒。", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFB9C7DA)) }
                     items(symbols.split(",").map { it.trim().uppercase() }.filter { it.isNotBlank() }) { symbol ->
                         OutlinedTextField(
@@ -511,6 +519,8 @@ private fun SentinelApp(settings: SecureSettings) {
                             notice = "买入价设置已保存；后台会在下一次定时检查时生效。"
                         }
                     }, modifier = Modifier.fillMaxWidth()) { Text("保存买入价提醒") } }
+                    }
+                    if (settingsSection == "策略") {
                     item { Text("行情刷新与后台监控", style = MaterialTheme.typography.titleMedium) }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(15, 30, 60, 120, 300).forEach { seconds ->
@@ -531,7 +541,8 @@ private fun SentinelApp(settings: SecureSettings) {
                             notice = "策略阈值和刷新设置已保存。前台刷新间隔 " + refreshSeconds + " 秒。"
                         } else notice = "阈值格式无效：加密货币 0.5–30，股票/指数 0.5–20。"
                     }, modifier = Modifier.fillMaxWidth()) { Text("保存刷新与策略设置") } }
-                    item { Divider() }
+                    }
+                    if (settingsSection == "通知") {
                     item { Text("通知设置", style = MaterialTheme.typography.headlineSmall) }
                     item { Text("Webhook 仅接受企业微信官方机器人地址，并加密保存在本机。不要把 Webhook 提交到仓库。") }
                     item { OutlinedTextField(webhook, { webhook = it }, label = { Text("企业微信群机器人 Webhook") }, modifier = Modifier.fillMaxWidth()) }
@@ -545,7 +556,8 @@ private fun SentinelApp(settings: SecureSettings) {
                     }, modifier = Modifier.fillMaxWidth()) { Text("保存并发送测试消息") } }
                     item { Text(notice, style = MaterialTheme.typography.bodySmall) }
                     item { Divider() }
-                    item { Text("无需保持 App 打开：后台监控由 Android WorkManager 定期执行，约每 15 分钟检查一次，并可发送手机通知及企业微信告警。Android 可能因省电、网络限制而延迟；强制停止 App 后，通常需重新打开才能恢复调度。后台使用定时行情快照，不是持续 WebSocket 推送；前台虚拟币才使用实时推送。公开行情接口可能限流，标的越多越容易触发限制。") }
+                    item { Text("推送时间使用手机本地时区；后台任务通常约 15 分钟检查一次，省电模式可能延迟。", style = MaterialTheme.typography.bodySmall, color = Color(0xFF92A5BF)) }
+                    }
                 }
             }
         }
