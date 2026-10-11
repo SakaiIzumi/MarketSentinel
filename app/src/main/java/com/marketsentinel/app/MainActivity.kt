@@ -141,13 +141,13 @@ private fun SentinelApp(settings: SecureSettings) {
                 }
                 1 -> LazyColumn(Modifier.padding(padding).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item { Text("技术策略与风险观察", style = MaterialTheme.typography.headlineSmall) }
-                    item { Text("包含 EMA 趋势、RSI 超买超卖、MACD 动能转换、布林带、20 根 K 线突破/跌破、成交量放大、ATR 波动风险和涨跌幅阈值。信号仅用于观察，不自动交易、不保证盈利。") }
+                    item { Text("新手指南：偏强=走势变好，但不是立即买入；偏弱=走势变差，不要急着抄底；涨跌异常=短期波动较大，先核实报价和消息；放量突破=价格超过近期高点且交易量增加，但也可能是假突破。建议先看趋势，再等价格站稳和成交量确认。买入前先决定最多能承受多少亏损，并提前设置退出规则；单笔计划风险可考虑控制在账户资金的 0.5%–1%，这不是收益保证。不确定时可以不交易。以下信号仅供参考，不自动交易，也不能保证盈利。") }
                     if (signals.isEmpty()) item { Text("暂无信号；请先刷新行情。") }
                     items(signals) { s -> ElevatedCard { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("${s.severity} · ${s.title}", style = MaterialTheme.typography.titleMedium)
+                        Text("${if (s.severity == "HIGH") "重点提醒" else "观察提醒"} · ${s.title}", style = MaterialTheme.typography.titleMedium)
                         Text("${s.symbol} · ${"%.4f".format(s.price)} · ${when(s.direction) { "LONG_WATCH" -> "偏多观察"; "SHORT_WATCH" -> "偏空观察"; else -> "风险观察" }}")
                         Text(s.reason)
-                        if (s.stopLoss != null) Text("ATR 参考止损：${"%.4f".format(s.stopLoss)}；目标1：${"%.4f".format(s.target1)}；目标2：${"%.4f".format(s.target2)}")
+                        if (s.stopLoss != null) Text("风险参考价位（并非保证成交价）：止损观察 ${"%.4f".format(s.stopLoss)}；目标1：${"%.4f".format(s.target1)}；目标2：${"%.4f".format(s.target2)}")
                     } } }
                     item { OutlinedButton(onClick = { tab = 2 }, modifier = Modifier.fillMaxWidth()) { Text("配置企业微信通知") } }
                 }
