@@ -136,6 +136,8 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
         }
         // 按真实持仓成本计算盈亏；默认止损 -5%、止盈 +8%，只在进入新风险区间时提醒。
         val positionPrefs = applicationContext.getSharedPreferences("position_alert_states", Context.MODE_PRIVATE)
+        // 本地通知与 Webhook 分别去重，避免本地通知成功但 Webhook 失败时丢失远端告警。
+        val webhookPositionPrefs = applicationContext.getSharedPreferences("position_webhook_alert_states", Context.MODE_PRIVATE)
         for ((symbol, result) in fetched) {
             val position = holdings[symbol] ?: continue
             val snapshot = result.getOrNull() ?: continue
@@ -159,7 +161,7 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 positionPrefs.edit().putString(stateKey, zone).apply()
                 continue
             }
-            if (oldZone == zone) continue
+            if (oldZone == zone && (webhook.isBlank() || webhookPositionPrefs.getString(stateKey, "IN_RANGE") == zone)) continue
             val priceText = if (snapshot.quote.market == "CRYPTO") "${"%.8f".format(currentPrice)} USDT" else "%.4f".format(currentPrice)
             val costText = if (snapshot.quote.market == "CRYPTO") "${"%.8f".format(position.averageCost)} USDT" else "%.4f".format(position.averageCost)
             val currency = when (snapshot.quote.market) {
@@ -189,6 +191,7 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                     appendLine("规则化风险提醒，不保证盈利；核对行情后自行决定，不会自动下单。")
                 }
                 webhookSent = WeComNotifier().sendMarkdown(webhook, markdown).isSuccess
+                if (webhookSent) webhookPositionPrefs.edit().putString(stateKey, zone).apply()
             }
             if (localSent || webhookSent) positionPrefs.edit().putString(stateKey, zone).apply()
         }
