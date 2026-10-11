@@ -160,6 +160,44 @@ class MarketRepository {
         })
     }
 
+    /** 按 A 股名称、简称/拼音或代码搜索新浪公开建议接口。 */
+    fun searchChinaStocks(query: String): List<AssetSearchResult> {
+        val keyword = query.trim()
+        if (keyword.isBlank()) return emptyList()
+        val encoded = java.net.URLEncoder.encode(keyword, "UTF-8")
+        val url = "https://suggest3.sinajs.cn/suggest/type=11,12,13,14,15&key=" + encoded
+        val request = Request.Builder().url(url)
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125.0 Mobile Safari/537.36")
+            .header("Referer", "https://finance.sina.com.cn/")
+            .header("Accept", "*/*")
+            .get().build()
+        val body = client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) error("A 股搜索接口 HTTP " + response.code)
+            val bytes = response.body?.bytes() ?: error("A 股搜索接口返回为空")
+            String(bytes, java.nio.charset.Charset.forName("GBK"))
+        }
+        val payload = body.substringAfter('=', body).trim().trimEnd(';').trim().trim('"')
+        return payload.split(';').mapNotNull { record ->
+            val fields = record.split(',')
+            if (fields.size < 5) return@mapNotNull null
+            val rawSymbol = fields.getOrNull(0).orEmpty().trim().lowercase()
+            val rawCode = fields.getOrNull(2).orEmpty().trim()
+            val code = Regex("[0-9]{6}").find(rawCode)?.value
+                ?: Regex("[0-9]{6}").find(rawSymbol)?.value
+                ?: return@mapNotNull null
+            val exchange = when {
+                rawSymbol.startsWith("sh") || rawSymbol.startsWith("ss") -> "SS"
+                rawSymbol.startsWith("sz") -> "SZ"
+                code.startsWith("6") || code.startsWith("9") -> "SS"
+                code.startsWith("0") || code.startsWith("2") || code.startsWith("3") -> "SZ"
+                else -> return@mapNotNull null
+            }
+            val name = fields.getOrNull(4).orEmpty().trim().ifBlank { fields.getOrNull(6).orEmpty().trim() }
+            if (name.isBlank()) return@mapNotNull null
+            AssetSearchResult(name, "$code.$exchange", "A股")
+        }.distinctBy { it.symbol }.take(12)
+    }
+
     private fun isChinaSymbol(symbol: String): Boolean =
         symbol.matches(Regex("^[0-9]{6}\\.(SS|SZ)$"))
 
@@ -192,10 +230,36 @@ class MarketRepository {
         val volume = fields[8].toDoubleOrNull() ?: 0.0
         require(price > 0 && price.isFinite()) { "A 股暂时无有效报价（可能停牌或休市）" }
         val change = if (previous > 0) (price - previous) / previous * 100 else 0.0
-        val candle = Candle(System.currentTimeMillis(), price, price, price, price, volume)
+        val fallbackCandle = Candle(System.currentTimeMillis(), price, price, price, price, volume)
+        // 额外拉取新浪 15 分钟历史 K 线，供 EMA/MACD/RSI 策略使用。
+        // 如果历史接口不可用，只保留真实快照，不伪造历史数据。
+        val candles = runCatching {
+            val klineUrl = "https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData" +
+                "?symbol=" + sinaCode + "&scale=15&ma=5&datalen=242"
+            val rows = array(klineUrl)
+            (0 until rows.length()).mapNotNull { rowIndex ->
+                val item = rows.optJSONObject(rowIndex) ?: return@mapNotNull null
+                val closeValue = item.optString("close").toDoubleOrNull() ?: return@mapNotNull null
+                if (closeValue <= 0 || !closeValue.isFinite()) return@mapNotNull null
+                val openValue = item.optString("open").toDoubleOrNull() ?: closeValue
+                val highValue = item.optString("high").toDoubleOrNull() ?: maxOf(openValue, closeValue)
+                val lowValue = item.optString("low").toDoubleOrNull() ?: minOf(openValue, closeValue)
+                val volumeValue = item.optString("volume").toDoubleOrNull() ?: 0.0
+                val dateText = item.optString("day")
+                val timestamp = listOf("yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd").firstNotNullOfOrNull { pattern ->
+                    runCatching {
+                        java.text.SimpleDateFormat(pattern, java.util.Locale.US).apply {
+                            timeZone = java.util.TimeZone.getTimeZone("Asia/Shanghai")
+                        }.parse(dateText)?.time
+                    }.getOrNull()
+                } ?: return@mapNotNull null
+                Candle(timestamp, openValue, highValue, lowValue, closeValue, volumeValue)
+            }.filter { it.close > 0 }.sortedBy { it.timestamp }
+        }.getOrDefault(emptyList())
+        val usableCandles = candles.takeIf { it.size >= 2 } ?: listOf(fallbackCandle)
         return MarketSnapshot(
-            MarketQuote(symbol, "A股", price, change, volume, source = "新浪公开行情 · 实时报价"),
-            listOf(candle)
+            MarketQuote(symbol, "A股", price, change, volume, source = "新浪公开行情 · 报价/15m K线"),
+            usableCandles
         )
     }
 

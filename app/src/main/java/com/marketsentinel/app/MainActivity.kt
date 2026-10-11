@@ -1,6 +1,7 @@
 package com.marketsentinel.app
 
 import android.os.Bundle
+import android.content.Intent
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,8 +39,11 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 
+private var customAssetNames: Map<String, String> = emptyMap()
+
 private fun localizedAssetName(symbol: String): String {
     val s = symbol.uppercase()
+    customAssetNames[s]?.takeIf { it.isNotBlank() }?.let { return it }
     return when (s) {
         "BTCUSDT", "BTCUSD", "BTC" -> "比特币"
         "ETHUSDT", "ETHUSD", "ETH" -> "以太坊"
@@ -123,9 +128,30 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
         val request = PeriodicWorkRequestBuilder<MonitorWorker>(15, TimeUnit.MINUTES)
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork("market-sentinel-monitor", ExistingPeriodicWorkPolicy.UPDATE, request)
+            .setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .build()
+        val workManager = WorkManager.getInstance(this)
+        // WorkManager 会在应用退出后继续调度，并负责设备重启后的任务恢复。
+        workManager.enqueueUniquePeriodicWork(
+            "market-sentinel-monitor",
+            ExistingPeriodicWorkPolicy.UPDATE,
+            request
+        )
+        // 首次启动或再次打开应用时尽快执行一次，不必等待下一个 15 分钟周期。
+        val immediateCheck = OneTimeWorkRequestBuilder<MonitorWorker>()
+            .setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .build()
+        workManager.enqueueUniqueWork(
+            "market-sentinel-monitor-now",
+            ExistingWorkPolicy.KEEP,
+            immediateCheck
+        )
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -136,12 +162,18 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SentinelApp(settings: SecureSettings) {
+    val appContext = LocalContext.current
+    var liveMonitorEnabled by remember { mutableStateOf(appContext.getSharedPreferences(LiveMonitorService.PREFS, 0).getBoolean("enabled", false)) }
     var tab by remember { mutableIntStateOf(0) }
     var settingsSection by remember { mutableStateOf("自选") }
     var snapshots by remember { mutableStateOf(emptyList<MarketSnapshot>()) }
     var symbols by remember { mutableStateOf(settings.getSymbols()) }
+    SideEffect { customAssetNames = settings.getAssetNames() }
     var webhook by remember { mutableStateOf(settings.getWebhook()) }
     var purchasePriceTexts = remember { androidx.compose.runtime.mutableStateMapOf<String, String>().apply { settings.getPurchasePrices().forEach { (symbol, price) -> put(symbol, price.toString()) } } }
+    var holdingQuantityTexts = remember { androidx.compose.runtime.mutableStateMapOf<String, String>().apply { settings.getHoldingQuantities().forEach { (symbol, quantity) -> put(symbol, quantity.toString()) } } }
+    var remoteStockMatches by remember { mutableStateOf(emptyList<AssetSearchResult>()) }
+    var stockSearchStatus by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("首次使用请联网刷新行情。") }
     var streamStatus by remember { mutableStateOf("等待加密货币实时连接…") }
     var busy by remember { mutableStateOf(false) }
@@ -221,6 +253,25 @@ private fun SentinelApp(settings: SecureSettings) {
             onStatus = { message -> streamStatus = message }
         )
         onDispose { socket?.close(1000, "watchlist changed") }
+    }
+
+    LaunchedEffect(newSymbol) {
+        val query = newSymbol.trim()
+        remoteStockMatches = emptyList()
+        if (query.isBlank() || query.length < 2) {
+            stockSearchStatus = ""
+        } else {
+            delay(350)
+            try {
+                val found = withContext(Dispatchers.IO) { repo.searchChinaStocks(query) }
+                if (newSymbol.trim() == query) {
+                    remoteStockMatches = found
+                    stockSearchStatus = if (found.isEmpty()) "未找到 A 股；尝试完整名称、简称/拼音或 6 位代码。" else "在线搜索找到 ${found.size} 个 A 股结果。"
+                }
+            } catch (_: Exception) {
+                if (newSymbol.trim() == query) stockSearchStatus = "在线 A 股搜索暂不可用；可直接输入代码，例如 600519.SS。"
+            }
+        }
     }
 
     LaunchedEffect(Unit) { refreshQuotesNow() }
@@ -343,7 +394,7 @@ private fun SentinelApp(settings: SecureSettings) {
                                 }
                                 Text(status, style = MaterialTheme.typography.bodySmall, color = Color(0xFFB9C7DA), maxLines = 3)
                                 Text("币价实时通道：$streamStatus", style = MaterialTheme.typography.labelSmall, color = if (streamStatus.contains("已连接")) Color(0xFF72E0C0) else Color(0xFFFFC078), maxLines = 2)
-                                Text("前台币价使用 WebSocket；股票行情可能延迟。后台定时检查约每 15 分钟一次。", style = MaterialTheme.typography.labelSmall, color = Color(0xFF91A3BB))
+                                Text("前台币价使用 WebSocket；开启常驻后台监控后，加密货币持仓止盈止损走实时推送，其他策略每分钟尝试检查。", style = MaterialTheme.typography.labelSmall, color = Color(0xFF91A3BB))
                             }
                         }
                     }
@@ -368,13 +419,13 @@ private fun SentinelApp(settings: SecureSettings) {
                     item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("自选", "提醒", "策略", "通知").forEach { section -> FilterChip(selected = settingsSection == section, onClick = { settingsSection = section }, label = { Text(section) }, modifier = Modifier.weight(1f)) } } }
                     if (settingsSection == "自选") {
                     item { Text("自选标的与刷新", style = MaterialTheme.typography.headlineSmall) }
-                    item { Text("支持 A 股、港股、美股、指数及加密货币。A 股格式：600519.SS（沪市）、000001.SZ（深市）；指数代码请使用 ^IXIC 等格式。最多 20 个标的。名称会显示中文别名，代码仍保留用于准确识别。", style = MaterialTheme.typography.bodyMedium) }
+                    item { Text("支持 A 股、港股、美股、指数及加密货币。A 股格式：600519.SS（沪市）、000001.SZ（深市）；指数代码请使用 ^IXIC 等格式。最多 20 个标的。支持在线搜索 A 股中文名称/简称/代码；公开行情源可能延迟或暂时不可用。", style = MaterialTheme.typography.bodyMedium) }
                     item {
                         OutlinedTextField(
                             value = newSymbol,
                             onValueChange = { newSymbol = it.take(40) },
                             label = { Text("搜索资产名称或代码") },
-                            placeholder = { Text("试试：比特币、英伟达、腾讯、BTC、ETH") },
+                            placeholder = { Text("试试：茅台、比亚迪、600519、BTC、ETH") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
                             leadingIcon = { Icon(Icons.Default.ShowChart, contentDescription = null) },
@@ -383,14 +434,20 @@ private fun SentinelApp(settings: SecureSettings) {
                     }
                     item {
                         val query = newSymbol.trim()
-                        val matches = watchlistAssetCatalog.filter { asset ->
+                        val localMatches = watchlistAssetCatalog.filter { asset ->
                             query.isBlank() ||
                                 asset.name.contains(query, ignoreCase = true) ||
                                 asset.symbol.contains(query, ignoreCase = true) ||
                                 asset.category.contains(query, ignoreCase = true)
-                        }.take(if (query.isBlank()) 8 else 12)
+                        }
+                        val onlineMatches = remoteStockMatches.map { WatchlistAsset(it.name, it.symbol, it.category) }
+                        val matches = (if (query.isBlank()) localMatches else onlineMatches + localMatches)
+                            .distinctBy { it.symbol }.take(if (query.isBlank()) 8 else 12)
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(if (query.isBlank()) "热门资产 · 点击添加" else "搜索结果（名称和代码均可匹配）", style = MaterialTheme.typography.titleSmall, color = Color(0xFFB9C7DA))
+                            if (query.isNotBlank() && stockSearchStatus.isNotBlank()) {
+                                Text(stockSearchStatus, style = MaterialTheme.typography.bodySmall, color = Color(0xFF92A5BF))
+                            }
                             matches.forEach { asset ->
                                 val alreadyAdded = asset.symbol in symbols.split(",").map { it.trim() }
                                 Surface(
@@ -405,6 +462,8 @@ private fun SentinelApp(settings: SecureSettings) {
                                         } else {
                                             symbols = (symbols.split(",").map { it.trim() }.filter { it.isNotBlank() } + asset.symbol).distinct().joinToString(",")
                                             settings.setSymbols(symbols)
+                                            settings.setAssetName(asset.symbol, asset.name)
+                                            customAssetNames = settings.getAssetNames()
                                             status = "已添加 ${asset.name}（${asset.symbol}），正在等待行情刷新。"
                                             newSymbol = ""
                                         }
@@ -492,38 +551,119 @@ private fun SentinelApp(settings: SecureSettings) {
                     } }
                     }
                     if (settingsSection == "提醒") {
-                    item { Text("价格提醒", style = MaterialTheme.typography.headlineSmall) }
-                    item { Text("给每个自选标的填写你的买入价格。行情高于买入价时，App 会发送手机通知，并在已配置 Webhook 时发送企业微信提醒；首次高于时提醒一次，跌回买入价以下后再次突破才会重新提醒。留空表示关闭该标的的买入价提醒。", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFB9C7DA)) }
+                    item { Text("我的持仓与个性化买卖提醒", style = MaterialTheme.typography.headlineSmall) }
+                    item { Text("每个标的填写买入均价和持有数量。系统会计算持仓盈亏，并按默认止损 -5%、止盈 +8% 发出明确提醒。这是起步用的默认规则，不是盈利保证。股票数量按股/份、加密货币数量按币填写；买入均价和数量都留空可清除持仓。", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFB9C7DA)) }
                     items(symbols.split(",").map { it.trim().uppercase() }.filter { it.isNotBlank() }) { symbol ->
-                        OutlinedTextField(
-                            value = purchasePriceTexts[symbol] ?: "",
-                            onValueChange = { purchasePriceTexts[symbol] = it },
-                            label = { Text(localizedAssetName(symbol) + " · " + symbol + " 买入价") },
-                            placeholder = { Text(if (symbol.endsWith("USDT")) "例如 65000.00 USDT" else "例如 180.50") },
-                            supportingText = { Text("输入大于 0 的价格；加密货币按 USDT 计价") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(localizedAssetName(symbol) + " · " + symbol, style = MaterialTheme.typography.titleSmall)
+                            OutlinedTextField(
+                                value = purchasePriceTexts[symbol] ?: "",
+                                onValueChange = { purchasePriceTexts[symbol] = it },
+                                label = { Text("买入均价") },
+                                placeholder = { Text(if (symbol.endsWith("USDT")) "例如 65000.00 USDT" else "例如 180.50") },
+                                supportingText = { Text("每股/每币成本价") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = holdingQuantityTexts[symbol] ?: "",
+                                onValueChange = { holdingQuantityTexts[symbol] = it },
+                                label = { Text(if (symbol.endsWith("USDT")) "持有数量（币）" else "持有数量（股/份）") },
+                                placeholder = { Text(if (symbol.endsWith("USDT")) "例如 0.25" else "例如 100") },
+                                supportingText = { Text("输入大于 0 的持有数量") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                        }
                     }
                     item { Button(onClick = {
                         val entries = symbols.split(",").map { it.trim().uppercase() }.filter { it.isNotBlank() }
                         val invalidSymbol = entries.firstOrNull { symbol ->
-                            val raw = purchasePriceTexts[symbol]?.trim().orEmpty()
-                            raw.isNotBlank() && (raw.toDoubleOrNull()?.let { it.isFinite() && it > 0 } != true)
+                            val priceRaw = purchasePriceTexts[symbol]?.trim().orEmpty()
+                            val quantityRaw = holdingQuantityTexts[symbol]?.trim().orEmpty()
+                            val price = priceRaw.toDoubleOrNull()
+                            val quantity = quantityRaw.toDoubleOrNull()
+                            (priceRaw.isBlank() != quantityRaw.isBlank()) ||
+                                (priceRaw.isNotBlank() && (price?.let { it.isFinite() && it > 0 } != true)) ||
+                                (quantityRaw.isNotBlank() && (quantity?.let { it.isFinite() && it > 0 } != true))
                         }
                         if (invalidSymbol != null) {
-                            notice = "买入价格式无效（$invalidSymbol）：请填写大于 0 的数字，或留空关闭提醒。"
+                            notice = "$invalidSymbol 持仓设置无效：买入均价和数量必须同时填写且都大于 0；清除时请同时留空。"
                         } else {
                             entries.forEach { symbol ->
-                                val raw = purchasePriceTexts[symbol]?.trim().orEmpty()
-                                settings.setPurchasePrice(symbol, if (raw.isBlank()) null else raw.toDoubleOrNull())
+                                val priceRaw = purchasePriceTexts[symbol]?.trim().orEmpty()
+                                val quantityRaw = holdingQuantityTexts[symbol]?.trim().orEmpty()
+                                settings.setPurchasePrice(symbol, if (priceRaw.isBlank()) null else priceRaw.toDoubleOrNull())
+                                settings.setHoldingQuantity(symbol, if (quantityRaw.isBlank()) null else quantityRaw.toDoubleOrNull())
                             }
-                            notice = "买入价设置已保存；后台会在下一次定时检查时生效。"
+                            notice = "持仓均价与数量已保存；后台会计算盈亏并发送个性化提醒。"
                         }
-                    }, modifier = Modifier.fillMaxWidth()) { Text("保存买入价提醒") } }
+                    }, modifier = Modifier.fillMaxWidth()) { Text("保存持仓与买卖提醒") } }
                     }
                     if (settingsSection == "策略") {
-                    item { Text("行情刷新与后台监控", style = MaterialTheme.typography.titleMedium) }
+                    item { Text("手机本地后台监控", style = MaterialTheme.typography.headlineSmall) }
+                    item {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color(0xFF111B2B)
+                        ) {
+                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(if (liveMonitorEnabled) "实时后台监控已开启" else "实时后台监控已关闭", color = Color(0xFF72E0C0), style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    "开启后会运行带常驻通知的 Android 前台服务：加密货币使用 Binance WebSocket 实时接收价格，止盈/止损触发后立即尝试推送企业微信；股票、指数和技术策略每分钟尝试检查一次。WorkManager 的 15 分钟任务仍作为补充检查。无需自建服务器。",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    "请允许通知，并在系统设置中将本应用电池使用设为“不受限制/允许后台运行”。WebSocket 的加密货币价格推送通常接近实时；股票/指数依赖公开数据源，可能延迟。断网、系统强制停止、厂商省电策略仍可能中断监控；前台服务不能保证绝对实时或永不被杀。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFFB9C7DA)
+                                )
+                                Button(
+                                    onClick = {
+                                        if (liveMonitorEnabled) {
+                                            appContext.stopService(Intent(appContext, LiveMonitorService::class.java))
+                                            appContext.getSharedPreferences(LiveMonitorService.PREFS, 0).edit().putBoolean("enabled", false).apply()
+                                            liveMonitorEnabled = false
+                                            notice = "已请求停止实时后台监控。"
+                                        } else {
+                                            try {
+                                                androidx.core.content.ContextCompat.startForegroundService(
+                                                    appContext,
+                                                    Intent(appContext, LiveMonitorService::class.java)
+                                                )
+                                                appContext.getSharedPreferences(LiveMonitorService.PREFS, 0).edit().putBoolean("enabled", true).apply()
+                                                liveMonitorEnabled = true
+                                                notice = "已启动实时后台监控；请保持通知权限和网络连接。"
+                                            } catch (e: Exception) {
+                                                notice = "启动后台监控失败：" + (e.message ?: "请检查系统权限")
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text(if (liveMonitorEnabled) "停止实时后台监控" else "开启实时后台监控") }
+                                Button(
+                                    onClick = {
+                                        val constraints = Constraints.Builder()
+                                            .setRequiredNetworkType(NetworkType.CONNECTED)
+                                            .build()
+                                        val request = OneTimeWorkRequestBuilder<MonitorWorker>()
+                                            .setConstraints(constraints)
+                                            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                                            .build()
+                                        WorkManager.getInstance(appContext).enqueueUniqueWork(
+                                            "market-sentinel-monitor-now",
+                                            ExistingWorkPolicy.KEEP,
+                                            request
+                                        )
+                                        notice = "已请求立即后台检查；请保持网络连接并允许通知。"
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("立即检查一次") }
+                            }
+                        }
+                    }
+                    item { Text("前台行情刷新", style = MaterialTheme.typography.titleMedium) }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(15, 30, 60, 120, 300).forEach { seconds ->
                             if (refreshSeconds == seconds) Button(onClick = { refreshSeconds = seconds; settings.setRefreshSeconds(seconds) }) { Text(seconds.toString() + "秒") }

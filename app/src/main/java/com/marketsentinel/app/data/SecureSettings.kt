@@ -51,6 +51,58 @@ class SecureSettings(context: Context) {
         prefs.edit().putString("purchase_prices", json.toString()).apply()
     }
 
+    fun getAssetNames(): Map<String, String> {
+        val raw = prefs.getString("asset_names", "{}") ?: "{}"
+        return runCatching {
+            val json = JSONObject(raw)
+            buildMap {
+                val keys = json.keys()
+                while (keys.hasNext()) {
+                    val symbol = keys.next()
+                    val name = json.optString(symbol).trim()
+                    if (symbol.isNotBlank() && name.isNotBlank()) put(symbol, name)
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    fun setAssetName(symbol: String, name: String) {
+        val normalized = symbol.trim().uppercase()
+        if (normalized.isBlank() || name.isBlank()) return
+        val names = getAssetNames().toMutableMap()
+        names[normalized] = name.trim()
+        val json = JSONObject()
+        names.forEach { (key, value) -> json.put(key, value) }
+        prefs.edit().putString("asset_names", json.toString()).apply()
+    }
+
+    /** 用户持仓数量；买入均价沿用 purchase_prices，兼容旧设置。 */
+    fun getHoldingQuantities(): Map<String, Double> {
+        val raw = prefs.getString("holding_quantities", "{}") ?: "{}"
+        return runCatching {
+            val json = JSONObject(raw)
+            buildMap {
+                val keys = json.keys()
+                while (keys.hasNext()) {
+                    val symbol = keys.next()
+                    val quantity = json.optDouble(symbol, Double.NaN)
+                    if (symbol.isNotBlank() && quantity.isFinite() && quantity > 0) put(symbol, quantity)
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    fun setHoldingQuantity(symbol: String, value: Double?) {
+        val normalized = symbol.trim().uppercase()
+        if (normalized.isBlank()) return
+        val quantities = getHoldingQuantities().toMutableMap()
+        if (value == null || !value.isFinite() || value <= 0) quantities.remove(normalized)
+        else quantities[normalized] = value
+        val json = JSONObject()
+        quantities.forEach { (key, quantity) -> json.put(key, quantity) }
+        prefs.edit().putString("holding_quantities", json.toString()).apply()
+    }
+
     fun getRefreshSeconds(): Int = prefs.getInt("refresh_seconds", 15).coerceIn(15, 300)
     fun setRefreshSeconds(value: Int) {
         prefs.edit().putInt("refresh_seconds", value.coerceIn(15, 300)).apply()

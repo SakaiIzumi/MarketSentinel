@@ -21,3 +21,7 @@ data class AlertEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0, val symbol: String, val title: String,
     val detail: String, val price: Double, val createdAt: Long = System.currentTimeMillis()
 )
+
+/** 用户持仓；股票数量按股/份，加密资产数量按币。 */
+data class HoldingPosition(val averageCost: Double, val quantity: Double)
+data class AssetSearchResult(val name: String, val symbol: String, val category: String)
