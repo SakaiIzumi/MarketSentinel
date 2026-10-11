@@ -1,6 +1,10 @@
 package com.marketsentinel.app
 
 import android.os.Bundle
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -78,11 +82,16 @@ private fun localizedAssetName(symbol: String): String {
 }
 
 class MainActivity : ComponentActivity() {
+    private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val request = PeriodicWorkRequestBuilder<MonitorWorker>(15, TimeUnit.MINUTES)
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork("market-sentinel-monitor", ExistingPeriodicWorkPolicy.UPDATE, request)
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
         setContent { SentinelApp(SecureSettings(this)) }
     }
 }
@@ -369,7 +378,7 @@ private fun SentinelApp(settings: SecureSettings) {
                             HorizontalDivider()
                         }
                     } }
-                    item { Text("刷新间隔（前台运行时）", style = MaterialTheme.typography.titleMedium) }
+                    item { Text("行情刷新与后台监控", style = MaterialTheme.typography.titleMedium) }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(15, 30, 60, 120, 300).forEach { seconds ->
                             if (refreshSeconds == seconds) Button(onClick = { refreshSeconds = seconds; settings.setRefreshSeconds(seconds) }) { Text(seconds.toString() + "秒") }
@@ -403,7 +412,7 @@ private fun SentinelApp(settings: SecureSettings) {
                     }, modifier = Modifier.fillMaxWidth()) { Text("保存并发送测试消息") } }
                     item { Text(notice, style = MaterialTheme.typography.bodySmall) }
                     item { Divider() }
-                    item { Text("前台刷新支持 15 秒起；这是定时请求而非逐笔实时推送。切到后台后 Android 省电策略可能暂停或延迟刷新。系统后台告警仍由 WorkManager 执行，周期最短约 15 分钟。公开行情接口可能限流，标的越多越容易触发限制。") }
+                    item { Text("无需保持 App 打开：后台监控由 Android WorkManager 定期执行，约每 15 分钟检查一次，并可发送手机通知及企业微信告警。Android 可能因省电、网络限制而延迟；强制停止 App 后，通常需重新打开才能恢复调度。后台使用定时行情快照，不是持续 WebSocket 推送；前台虚拟币才使用实时推送。公开行情接口可能限流，标的越多越容易触发限制。") }
                 }
             }
         }
