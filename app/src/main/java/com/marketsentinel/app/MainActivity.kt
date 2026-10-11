@@ -137,6 +137,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun SentinelApp(settings: SecureSettings) {
     var tab by remember { mutableIntStateOf(0) }
+    var settingsSection by remember { mutableStateOf("自选") }
+    var snapshots by remember { mutableStateOf(emptyList<MarketSnapshot>()) }
     var symbols by remember { mutableStateOf(settings.getSymbols()) }
     var webhook by remember { mutableStateOf(settings.getWebhook()) }
     var purchasePriceTexts = remember { androidx.compose.runtime.mutableStateMapOf<String, String>().apply { settings.getPurchasePrices().forEach { (symbol, price) -> put(symbol, price.toString()) } } }
@@ -181,7 +183,9 @@ private fun SentinelApp(settings: SecureSettings) {
             val results = withContext(Dispatchers.IO) {
                 coroutineScope { list.map { symbol -> async { symbol to repo.snapshot(symbol) } }.awaitAll() }
             }
-            val snapshots = results.mapNotNull { it.second.getOrNull() }
+            val freshSnapshots = results.mapNotNull { it.second.getOrNull() }
+            snapshots = freshSnapshots
+            val snapshots = freshSnapshots
             val successful = snapshots.map { it.quote.symbol }.toSet()
             val merged = quotes.associateBy { it.symbol }.toMutableMap()
             snapshots.forEach { merged[it.quote.symbol] = it.quote }
@@ -347,6 +351,8 @@ private fun SentinelApp(settings: SecureSettings) {
                 1 -> LazyColumn(Modifier.padding(padding).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item { Text("技术策略与风险观察", style = MaterialTheme.typography.headlineSmall) }
                     item { PositionRiskCalculatorCard() }
+                    item { StrategyConfluenceCard(snapshots, signals) }
+                    item { StrategyBacktestCard(snapshots) }
                     item { Text("新手指南：偏强=走势变好，但不是立即买入；偏弱=走势变差，不要急着抄底；涨跌异常=短期波动较大，先核实报价和消息；放量突破=价格超过近期高点且交易量增加，但也可能是假突破。建议先看趋势，再等价格站稳和成交量确认。买入前先决定最多能承受多少亏损，并提前设置退出规则；单笔计划风险可考虑控制在账户资金的 0.5%–1%，这不是收益保证。不确定时可以不交易。以下信号仅供参考，不自动交易，也不能保证盈利。") }
                     if (signals.isEmpty()) item { Text("暂无信号；请先刷新行情。") }
                     items(signals) { s -> ElevatedCard { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -357,7 +363,10 @@ private fun SentinelApp(settings: SecureSettings) {
                     } } }
                     item { OutlinedButton(onClick = { tab = 2 }, modifier = Modifier.fillMaxWidth()) { Text("配置企业微信通知") } }
                 }
-                else -> LazyColumn(Modifier.padding(padding).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                else -> LazyColumn(Modifier.padding(padding).fillMaxSize().padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    item { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { Text("设置中心", style = MaterialTheme.typography.headlineSmall); Text("按用途分类配置，修改后点击对应保存按钮。", style = MaterialTheme.typography.bodySmall, color = Color(0xFF92A5BF)) } }
+                    item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("自选", "提醒", "策略", "通知").forEach { section -> FilterChip(selected = settingsSection == section, onClick = { settingsSection = section }, label = { Text(section) }, modifier = Modifier.weight(1f)) } } }
+                    if (settingsSection == "自选") {
                     item { Text("自选标的与刷新", style = MaterialTheme.typography.headlineSmall) }
                     item { Text("支持 A 股、港股、美股、指数及加密货币。A 股格式：600519.SS（沪市）、000001.SZ（深市）；指数代码请使用 ^IXIC 等格式。最多 20 个标的。名称会显示中文别名，代码仍保留用于准确识别。", style = MaterialTheme.typography.bodyMedium) }
                     item {
@@ -481,8 +490,9 @@ private fun SentinelApp(settings: SecureSettings) {
                             HorizontalDivider()
                         }
                     } }
-                    item { Divider() }
-                    item { Text("买入价提醒", style = MaterialTheme.typography.headlineSmall) }
+                    }
+                    if (settingsSection == "提醒") {
+                    item { Text("价格提醒", style = MaterialTheme.typography.headlineSmall) }
                     item { Text("给每个自选标的填写你的买入价格。行情高于买入价时，App 会发送手机通知，并在已配置 Webhook 时发送企业微信提醒；首次高于时提醒一次，跌回买入价以下后再次突破才会重新提醒。留空表示关闭该标的的买入价提醒。", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFB9C7DA)) }
                     items(symbols.split(",").map { it.trim().uppercase() }.filter { it.isNotBlank() }) { symbol ->
                         OutlinedTextField(
@@ -511,6 +521,8 @@ private fun SentinelApp(settings: SecureSettings) {
                             notice = "买入价设置已保存；后台会在下一次定时检查时生效。"
                         }
                     }, modifier = Modifier.fillMaxWidth()) { Text("保存买入价提醒") } }
+                    }
+                    if (settingsSection == "策略") {
                     item { Text("行情刷新与后台监控", style = MaterialTheme.typography.titleMedium) }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(15, 30, 60, 120, 300).forEach { seconds ->
@@ -531,7 +543,8 @@ private fun SentinelApp(settings: SecureSettings) {
                             notice = "策略阈值和刷新设置已保存。前台刷新间隔 " + refreshSeconds + " 秒。"
                         } else notice = "阈值格式无效：加密货币 0.5–30，股票/指数 0.5–20。"
                     }, modifier = Modifier.fillMaxWidth()) { Text("保存刷新与策略设置") } }
-                    item { Divider() }
+                    }
+                    if (settingsSection == "通知") {
                     item { Text("通知设置", style = MaterialTheme.typography.headlineSmall) }
                     item { Text("Webhook 仅接受企业微信官方机器人地址，并加密保存在本机。不要把 Webhook 提交到仓库。") }
                     item { OutlinedTextField(webhook, { webhook = it }, label = { Text("企业微信群机器人 Webhook") }, modifier = Modifier.fillMaxWidth()) }
@@ -545,9 +558,139 @@ private fun SentinelApp(settings: SecureSettings) {
                     }, modifier = Modifier.fillMaxWidth()) { Text("保存并发送测试消息") } }
                     item { Text(notice, style = MaterialTheme.typography.bodySmall) }
                     item { Divider() }
-                    item { Text("无需保持 App 打开：后台监控由 Android WorkManager 定期执行，约每 15 分钟检查一次，并可发送手机通知及企业微信告警。Android 可能因省电、网络限制而延迟；强制停止 App 后，通常需重新打开才能恢复调度。后台使用定时行情快照，不是持续 WebSocket 推送；前台虚拟币才使用实时推送。公开行情接口可能限流，标的越多越容易触发限制。") }
+                    item { Text("推送时间使用手机本地时区；后台任务通常约 15 分钟检查一次，省电模式可能延迟。", style = MaterialTheme.typography.bodySmall, color = Color(0xFF92A5BF)) }
+                    }
                 }
             }
         }
     }
 }
+
+
+@Composable
+private fun StrategyConfluenceCard(snapshots: List<MarketSnapshot>, signals: List<StrategySignal>) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF111B2B))
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("多条件共振评分", style = MaterialTheme.typography.titleLarge, color = Color(0xFFF2F6FF))
+            Text("这是规则一致性评分，不是盈利概率；需结合回测和风险计划判断。", style = MaterialTheme.typography.bodySmall, color = Color(0xFF92A5BF))
+            if (snapshots.isEmpty()) {
+                Text("刷新行情后生成评分。")
+            } else {
+                snapshots.take(8).forEach { snapshot ->
+                    val symbol = snapshot.quote.symbol
+                    val kinds = signals.filter { it.symbol == symbol }.map { it.kind }.toSet()
+                    val positive = listOf("TREND_UP", "MACD_BULL", "BREAKOUT_VOLUME").count { it in kinds }
+                    val risks = listOf("TREND_DOWN", "MACD_BEAR", "RSI_HIGH", "RSI_LOW", "ATR_HIGH", "BREAKDOWN_VOLUME", "VOLATILITY").count { it in kinds }
+                    val score = (positive * 25 + (if (positive >= 2 && risks == 0) 25 else 0) - risks * 12).coerceIn(0, 100)
+                    val label = when {
+                        risks >= 2 -> "风险偏高 · 谨慎观察"
+                        positive >= 2 && risks == 0 -> "多条件共振 · 继续观察"
+                        positive == 1 -> "单一条件出现 · 等待确认"
+                        else -> "信号不足 · 暂不判断"
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(localizedAssetName(symbol), color = Color(0xFFF2F6FF))
+                            Text(score.toString() + " / 100", color = when {
+                                risks >= 2 -> Color(0xFFFF8290)
+                                positive >= 2 && risks == 0 -> Color(0xFF72E0C0)
+                                else -> Color(0xFFFFC078)
+                            })
+                        }
+                        LinearProgressIndicator(progress = { score / 100f }, modifier = Modifier.fillMaxWidth(), color = Color(0xFF72E0C0), trackColor = Color(0xFF263449))
+                        Text(label, style = MaterialTheme.typography.bodySmall, color = Color(0xFFB9C7DA))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StrategyBacktestCard(snapshots: List<MarketSnapshot>) {
+    val reports = remember(snapshots) {
+        snapshots.mapNotNull { snapshot ->
+            val bars = snapshot.candles.filter { it.open > 0 && it.close > 0 && it.open.isFinite() && it.close.isFinite() }
+            if (bars.size < 35) return@mapNotNull null
+            fun ema(period: Int): List<Double> {
+                val alpha = 2.0 / (period + 1.0)
+                val values = ArrayList<Double>(bars.size)
+                var value = bars.first().close
+                values += value
+                for (i in 1 until bars.size) {
+                    value = bars[i].close * alpha + value * (1 - alpha)
+                    values += value
+                }
+                return values
+            }
+            val fast = ema(9)
+            val slow = ema(21)
+            var holding = false
+            var entry = 0.0
+            var equity = 1.0
+            var peak = 1.0
+            var maxDrawdown = 0.0
+            var trades = 0
+            var wins = 0
+            for (i in 22 until bars.lastIndex) {
+                val crossedUp = fast[i - 1] <= slow[i - 1] && fast[i] > slow[i]
+                val crossedDown = fast[i - 1] >= slow[i - 1] && fast[i] < slow[i]
+                val nextOpen = bars[i + 1].open
+                if (!holding && crossedUp) {
+                    entry = nextOpen * 1.001
+                    holding = true
+                } else if (holding && crossedDown) {
+                    val tradeReturn = (nextOpen * 0.999) / entry - 1.0
+                    equity *= (1.0 + tradeReturn)
+                    trades++
+                    if (tradeReturn > 0) wins++
+                    peak = maxOf(peak, equity)
+                    maxDrawdown = maxOf(maxDrawdown, if (peak > 0) (peak - equity) / peak else 0.0)
+                    holding = false
+                }
+            }
+            if (holding) {
+                val tradeReturn = (bars.last().close * 0.999) / entry - 1.0
+                equity *= (1.0 + tradeReturn)
+                trades++
+                if (tradeReturn > 0) wins++
+                peak = maxOf(peak, equity)
+                maxDrawdown = maxOf(maxDrawdown, if (peak > 0) (peak - equity) / peak else 0.0)
+            }
+            BacktestReport(snapshot.quote.symbol, bars.size, trades, if (trades > 0) wins * 100.0 / trades else 0.0, (equity - 1.0) * 100.0, maxDrawdown * 100.0)
+        }
+    }
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF111B2B))
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("简易历史回测 · EMA 9/21", style = MaterialTheme.typography.titleLarge, color = Color(0xFFF2F6FF))
+            Text("信号在收盘后确认，下一根 K 线开盘模拟成交；每次买入和卖出各计 0.1% 成本近似值。结果不代表未来表现，数据周期由行情源决定。", style = MaterialTheme.typography.bodySmall, color = Color(0xFF92A5BF))
+            if (reports.isEmpty()) {
+                Text("当前行情源尚无足够历史 K 线（至少 35 根），请刷新后查看。")
+            } else reports.take(6).forEach { report ->
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(localizedAssetName(report.symbol) + " · " + report.symbol, color = Color(0xFFF2F6FF))
+                    Text("样本 " + report.bars + " 根 · 完成交易 " + report.trades + " 笔 · 胜率 " + "%.1f".format(report.winRate) + "%", color = Color(0xFFB9C7DA), style = MaterialTheme.typography.bodySmall)
+                    Text("模拟累计收益 " + (if (report.returnPct >= 0) "+" else "") + "%.2f".format(report.returnPct) + "% · 最大回撤 " + "%.2f".format(report.maxDrawdown) + "%", color = if (report.returnPct >= 0) Color(0xFF72E0C0) else Color(0xFFFF8290), style = MaterialTheme.typography.bodySmall)
+                }
+                HorizontalDivider(color = Color(0xFF263449))
+            }
+        }
+    }
+}
+
+private data class BacktestReport(
+    val symbol: String,
+    val bars: Int,
+    val trades: Int,
+    val winRate: Double,
+    val returnPct: Double,
+    val maxDrawdown: Double
+)

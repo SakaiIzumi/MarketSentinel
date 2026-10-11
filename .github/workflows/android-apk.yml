@@ -107,6 +107,29 @@ jobs:
 
           echo "Project files verified."
 
+      - name: Configure optional stable APK signing
+        shell: bash
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -n "${SIGNING_KEYSTORE_BASE64:-}" ] && [ -n "${SIGNING_STORE_PASSWORD:-}" ] && [ -n "${SIGNING_KEY_ALIAS:-}" ] && [ -n "${SIGNING_KEY_PASSWORD:-}" ]; then
+            KEYSTORE_PATH="$RUNNER_TEMP/market-sentinel-signing.jks"
+            echo "$SIGNING_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+            {
+              echo "ANDROID_SIGNING_STORE_FILE=$KEYSTORE_PATH"
+              echo "ANDROID_SIGNING_STORE_PASSWORD=$SIGNING_STORE_PASSWORD"
+              echo "ANDROID_SIGNING_KEY_ALIAS=$SIGNING_KEY_ALIAS"
+              echo "ANDROID_SIGNING_KEY_PASSWORD=$SIGNING_KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+            echo "Stable signing keystore configured."
+          else
+            echo "::warning::Signing secrets are missing. This APK uses the runner's debug key and may not update-install over an APK signed by a different runner."
+          fi
+
       - name: Build Debug APK
         shell: bash
         run: |
