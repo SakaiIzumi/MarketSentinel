@@ -351,6 +351,8 @@ private fun SentinelApp(settings: SecureSettings) {
                 1 -> LazyColumn(Modifier.padding(padding).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item { Text("技术策略与风险观察", style = MaterialTheme.typography.headlineSmall) }
                     item { PositionRiskCalculatorCard() }
+                    item { StrategyConfluenceCard(snapshots, signals) }
+                    item { StrategyBacktestCard(snapshots) }
                     item { Text("新手指南：偏强=走势变好，但不是立即买入；偏弱=走势变差，不要急着抄底；涨跌异常=短期波动较大，先核实报价和消息；放量突破=价格超过近期高点且交易量增加，但也可能是假突破。建议先看趋势，再等价格站稳和成交量确认。买入前先决定最多能承受多少亏损，并提前设置退出规则；单笔计划风险可考虑控制在账户资金的 0.5%–1%，这不是收益保证。不确定时可以不交易。以下信号仅供参考，不自动交易，也不能保证盈利。") }
                     if (signals.isEmpty()) item { Text("暂无信号；请先刷新行情。") }
                     items(signals) { s -> ElevatedCard { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -563,3 +565,132 @@ private fun SentinelApp(settings: SecureSettings) {
         }
     }
 }
+
+
+@Composable
+private fun StrategyConfluenceCard(snapshots: List<MarketSnapshot>, signals: List<StrategySignal>) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF111B2B))
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("多条件共振评分", style = MaterialTheme.typography.titleLarge, color = Color(0xFFF2F6FF))
+            Text("这是规则一致性评分，不是盈利概率；需结合回测和风险计划判断。", style = MaterialTheme.typography.bodySmall, color = Color(0xFF92A5BF))
+            if (snapshots.isEmpty()) {
+                Text("刷新行情后生成评分。")
+            } else {
+                snapshots.take(8).forEach { snapshot ->
+                    val symbol = snapshot.quote.symbol
+                    val kinds = signals.filter { it.symbol == symbol }.map { it.kind }.toSet()
+                    val positive = listOf("TREND_UP", "MACD_BULL", "BREAKOUT_VOLUME").count { it in kinds }
+                    val risks = listOf("TREND_DOWN", "MACD_BEAR", "RSI_HIGH", "RSI_LOW", "ATR_HIGH", "BREAKDOWN_VOLUME", "VOLATILITY").count { it in kinds }
+                    val score = (positive * 25 + (if (positive >= 2 && risks == 0) 25 else 0) - risks * 12).coerceIn(0, 100)
+                    val label = when {
+                        risks >= 2 -> "风险偏高 · 谨慎观察"
+                        positive >= 2 && risks == 0 -> "多条件共振 · 继续观察"
+                        positive == 1 -> "单一条件出现 · 等待确认"
+                        else -> "信号不足 · 暂不判断"
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(localizedAssetName(symbol), color = Color(0xFFF2F6FF))
+                            Text(score.toString() + " / 100", color = when {
+                                risks >= 2 -> Color(0xFFFF8290)
+                                positive >= 2 && risks == 0 -> Color(0xFF72E0C0)
+                                else -> Color(0xFFFFC078)
+                            })
+                        }
+                        LinearProgressIndicator(progress = { score / 100f }, modifier = Modifier.fillMaxWidth(), color = Color(0xFF72E0C0), trackColor = Color(0xFF263449))
+                        Text(label, style = MaterialTheme.typography.bodySmall, color = Color(0xFFB9C7DA))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StrategyBacktestCard(snapshots: List<MarketSnapshot>) {
+    val reports = remember(snapshots) {
+        snapshots.mapNotNull { snapshot ->
+            val bars = snapshot.candles.filter { it.open > 0 && it.close > 0 && it.open.isFinite() && it.close.isFinite() }
+            if (bars.size < 35) return@mapNotNull null
+            fun ema(period: Int): List<Double> {
+                val alpha = 2.0 / (period + 1.0)
+                val values = ArrayList<Double>(bars.size)
+                var value = bars.first().close
+                values += value
+                for (i in 1 until bars.size) {
+                    value = bars[i].close * alpha + value * (1 - alpha)
+                    values += value
+                }
+                return values
+            }
+            val fast = ema(9)
+            val slow = ema(21)
+            var holding = false
+            var entry = 0.0
+            var equity = 1.0
+            var peak = 1.0
+            var maxDrawdown = 0.0
+            var trades = 0
+            var wins = 0
+            for (i in 22 until bars.lastIndex) {
+                val crossedUp = fast[i - 1] <= slow[i - 1] && fast[i] > slow[i]
+                val crossedDown = fast[i - 1] >= slow[i - 1] && fast[i] < slow[i]
+                val nextOpen = bars[i + 1].open
+                if (!holding && crossedUp) {
+                    entry = nextOpen * 1.001
+                    holding = true
+                } else if (holding && crossedDown) {
+                    val tradeReturn = (nextOpen * 0.999) / entry - 1.0
+                    equity *= (1.0 + tradeReturn)
+                    trades++
+                    if (tradeReturn > 0) wins++
+                    peak = maxOf(peak, equity)
+                    maxDrawdown = maxOf(maxDrawdown, if (peak > 0) (peak - equity) / peak else 0.0)
+                    holding = false
+                }
+            }
+            if (holding) {
+                val tradeReturn = (bars.last().close * 0.999) / entry - 1.0
+                equity *= (1.0 + tradeReturn)
+                trades++
+                if (tradeReturn > 0) wins++
+                peak = maxOf(peak, equity)
+                maxDrawdown = maxOf(maxDrawdown, if (peak > 0) (peak - equity) / peak else 0.0)
+            }
+            BacktestReport(snapshot.quote.symbol, bars.size, trades, if (trades > 0) wins * 100.0 / trades else 0.0, (equity - 1.0) * 100.0, maxDrawdown * 100.0)
+        }
+    }
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF111B2B))
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("简易历史回测 · EMA 9/21", style = MaterialTheme.typography.titleLarge, color = Color(0xFFF2F6FF))
+            Text("信号在收盘后确认，下一根 K 线开盘模拟成交；每次买入和卖出各计 0.1% 成本近似值。结果不代表未来表现，数据周期由行情源决定。", style = MaterialTheme.typography.bodySmall, color = Color(0xFF92A5BF))
+            if (reports.isEmpty()) {
+                Text("当前行情源尚无足够历史 K 线（至少 35 根），请刷新后查看。")
+            } else reports.take(6).forEach { report ->
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(localizedAssetName(report.symbol) + " · " + report.symbol, color = Color(0xFFF2F6FF))
+                    Text("样本 " + report.bars + " 根 · 完成交易 " + report.trades + " 笔 · 胜率 " + "%.1f".format(report.winRate) + "%", color = Color(0xFFB9C7DA), style = MaterialTheme.typography.bodySmall)
+                    Text("模拟累计收益 " + (if (report.returnPct >= 0) "+" else "") + "%.2f".format(report.returnPct) + "% · 最大回撤 " + "%.2f".format(report.maxDrawdown) + "%", color = if (report.returnPct >= 0) Color(0xFF72E0C0) else Color(0xFFFF8290), style = MaterialTheme.typography.bodySmall)
+                }
+                HorizontalDivider(color = Color(0xFF263449))
+            }
+        }
+    }
+}
+
+private data class BacktestReport(
+    val symbol: String,
+    val bars: Int,
+    val trades: Int,
+    val winRate: Double,
+    val returnPct: Double,
+    val maxDrawdown: Double
+)
