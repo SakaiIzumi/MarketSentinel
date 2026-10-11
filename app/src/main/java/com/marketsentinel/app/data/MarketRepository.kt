@@ -18,7 +18,83 @@ class MarketRepository {
     fun snapshot(rawSymbol: String): Result<MarketSnapshot> = runCatching {
         val symbol = rawSymbol.trim().uppercase()
         require(symbol.matches(Regex("[A-Z0-9.^=_-]{1,24}"))) { "标的代码格式不正确：" + rawSymbol }
-        if (isCryptoSymbol(symbol)) crypto(symbol) else if (isChinaSymbol(symbol)) chinaQuote(symbol) else yahoo(symbol)
+        if (isCryptoSymbol(symbol)) crypto(symbol)
+        else if (isChinaSymbol(symbol)) chinaQuote(symbol)
+        else globalQuote(symbol)
+    }
+
+    /**
+     * Yahoo Finance 被限流/403 时，回退到 Stooq CSV 日线。
+     * Stooq 日线通常不是实时行情；UI 会明确显示来源，不能与实时报价混为一谈。
+     */
+    private fun globalQuote(symbol: String): MarketSnapshot {
+        var yahooError: Throwable? = null
+        try {
+            return yahoo(symbol)
+        } catch (e: Exception) {
+            yahooError = e
+        }
+        try {
+            return stooqQuote(symbol)
+        } catch (e: Exception) {
+            throw IllegalStateException(
+                "主行情源 Yahoo Finance 失败（${yahooError?.message ?: "未知错误"}）；备用 Stooq 也失败（${e.message ?: "未知错误"}）"
+            )
+        }
+    }
+
+    private fun stooqSymbol(symbol: String): String? = when (symbol) {
+        "^GSPC" -> "^spx"
+        "^IXIC" -> "^ndq"
+        "^HSI" -> "^hsi"
+        else -> when {
+            symbol.matches(Regex("^[A-Z]{1,6}$")) -> symbol.lowercase() + ".us"
+            symbol.matches(Regex("^[0-9]{4,5}\\.HK$")) -> symbol.removeSuffix(".HK").lowercase() + ".hk"
+            else -> null
+        }
+    }
+
+    private fun stooqQuote(symbol: String): MarketSnapshot {
+        val mapped = stooqSymbol(symbol) ?: error("此代码暂无 Stooq 备用映射")
+        val url = "https://stooq.com/q/d/l/?s=" + mapped + "&i=d"
+        val request = Request.Builder().url(url)
+            .header("User-Agent", "MarketSentinel-Android/0.4")
+            .header("Accept", "text/csv,*/*")
+            .get().build()
+        val csv = client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) error("Stooq HTTP " + response.code)
+            response.body?.string() ?: error("Stooq 返回空数据")
+        }
+        val rows = csv.lineSequence().drop(1).mapNotNull { line ->
+            val f = line.split(",")
+            if (f.size < 6) return@mapNotNull null
+            val date = f[0].trim()
+            val open = f[1].toDoubleOrNull() ?: return@mapNotNull null
+            val high = f[2].toDoubleOrNull() ?: return@mapNotNull null
+            val low = f[3].toDoubleOrNull() ?: return@mapNotNull null
+            val close = f[4].toDoubleOrNull() ?: return@mapNotNull null
+            val volume = f[5].toDoubleOrNull() ?: 0.0
+            val time = try {
+                java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply {
+                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                }.parse(date)?.time ?: return@mapNotNull null
+            } catch (_: Exception) { return@mapNotNull null }
+            Candle(time, open, high, low, close, volume)
+        }.toList().takeLast(100)
+        require(rows.size >= 2) { "Stooq 没有足够日线数据（可能不支持此代码或当前网络无法访问）" }
+        val last = rows.last()
+        val previous = rows[rows.lastIndex - 1].close
+        val market = when {
+            symbol.endsWith(".HK") || symbol == "^HSI" -> "港股/恒指"
+            symbol.startsWith("^") -> "海外指数"
+            else -> "美股/ETF"
+        }
+        return MarketSnapshot(
+            MarketQuote(symbol, market, last.close,
+                if (previous > 0) (last.close - previous) / previous * 100 else 0.0,
+                last.volume, source = "Stooq · 日线（可能延迟）"),
+            rows
+        )
     }
 
     private fun isChinaSymbol(symbol: String): Boolean =
