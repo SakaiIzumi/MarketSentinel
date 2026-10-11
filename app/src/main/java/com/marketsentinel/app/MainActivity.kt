@@ -100,6 +100,19 @@ private fun SentinelApp(settings: SecureSettings) {
     var signals by remember { mutableStateOf(emptyList<StrategySignal>()) }
     var notice by remember { mutableStateOf("Webhook 尚未测试") }
     var newSymbol by remember { mutableStateOf("") }
+    var quoteSearch by remember { mutableStateOf("") }
+    var marketFilter by remember { mutableStateOf("全部") }
+    val filteredQuotes = quotes.filter { q ->
+        val matchesSearch = quoteSearch.isBlank() || q.symbol.contains(quoteSearch.trim(), true) || localizedAssetName(q.symbol).contains(quoteSearch.trim(), true)
+        val matchesMarket = when (marketFilter) {
+            "加密货币" -> q.market == "CRYPTO"
+            "股票" -> q.market != "CRYPTO"
+            "上涨" -> q.changePct > 0
+            "下跌" -> q.changePct < 0
+            else -> true
+        }
+        matchesSearch && matchesMarket
+    }
     var refreshSeconds by remember { mutableIntStateOf(settings.getRefreshSeconds()) }
     var autoRefresh by remember { mutableStateOf(true) }
     var cryptoThresholdText by remember { mutableStateOf(settings.getCryptoThreshold().toString()) }
@@ -200,6 +213,8 @@ private fun SentinelApp(settings: SecureSettings) {
                             }
                         }
                     }
+                    item { MarketOverviewCard(quotes) }
+                    item { MarketSearchFilter(search = quoteSearch, onSearch = { quoteSearch = it }, filter = marketFilter, onFilter = { marketFilter = it }) }
                     item { ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Icon(Icons.Default.Refresh, contentDescription = null); Text(if (autoRefresh) "自动刷新 · 每 " + refreshSeconds + " 秒" else "自动刷新已暂停", style = MaterialTheme.typography.titleMedium) }; Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedButton(onClick = { autoRefresh = !autoRefresh }) { Text(if (autoRefresh) "暂停自动刷新" else "开启自动刷新") }; Button(enabled = !busy, onClick = { scope.launch { refreshQuotesNow() } }) { Icon(Icons.Default.Refresh, contentDescription = null); Spacer(Modifier.width(6.dp)); Text(if (busy) "刷新中…" else "立即刷新") } } } } }
                     item {
                         ElevatedCard(
@@ -239,7 +254,7 @@ private fun SentinelApp(settings: SecureSettings) {
                             }
                         }
                     }
-                    items(quotes) { q ->
+                    items(filteredQuotes) { q ->
                         val positive = q.changePct >= 0
                         ElevatedCard(
                             Modifier.fillMaxWidth(),
@@ -280,6 +295,7 @@ private fun SentinelApp(settings: SecureSettings) {
                 }
                 1 -> LazyColumn(Modifier.padding(padding).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item { Text("技术策略与风险观察", style = MaterialTheme.typography.headlineSmall) }
+                    item { PositionRiskCalculatorCard() }
                     item { Text("新手指南：偏强=走势变好，但不是立即买入；偏弱=走势变差，不要急着抄底；涨跌异常=短期波动较大，先核实报价和消息；放量突破=价格超过近期高点且交易量增加，但也可能是假突破。建议先看趋势，再等价格站稳和成交量确认。买入前先决定最多能承受多少亏损，并提前设置退出规则；单笔计划风险可考虑控制在账户资金的 0.5%–1%，这不是收益保证。不确定时可以不交易。以下信号仅供参考，不自动交易，也不能保证盈利。") }
                     if (signals.isEmpty()) item { Text("暂无信号；请先刷新行情。") }
                     items(signals) { s -> ElevatedCard { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
