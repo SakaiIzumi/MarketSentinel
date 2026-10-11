@@ -237,8 +237,8 @@ class MarketRepository {
             val klineUrl = "https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData" +
                 "?symbol=" + sinaCode + "&scale=15&ma=5&datalen=242"
             val rows = array(klineUrl)
-            rows.mapNotNull { row ->
-                val item = row as? JSONObject ?: return@mapNotNull null
+            (0 until rows.length()).mapNotNull { rowIndex ->
+                val item = rows.optJSONObject(rowIndex) ?: return@mapNotNull null
                 val closeValue = item.optString("close").toDoubleOrNull() ?: return@mapNotNull null
                 if (closeValue <= 0 || !closeValue.isFinite()) return@mapNotNull null
                 val openValue = item.optString("open").toDoubleOrNull() ?: closeValue
