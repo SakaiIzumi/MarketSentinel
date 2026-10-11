@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -126,9 +127,30 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
         val request = PeriodicWorkRequestBuilder<MonitorWorker>(15, TimeUnit.MINUTES)
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork("market-sentinel-monitor", ExistingPeriodicWorkPolicy.UPDATE, request)
+            .setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .build()
+        val workManager = WorkManager.getInstance(this)
+        // WorkManager 会在应用退出后继续调度，并负责设备重启后的任务恢复。
+        workManager.enqueueUniquePeriodicWork(
+            "market-sentinel-monitor",
+            ExistingPeriodicWorkPolicy.UPDATE,
+            request
+        )
+        // 首次启动或再次打开应用时尽快执行一次，不必等待下一个 15 分钟周期。
+        val immediateCheck = OneTimeWorkRequestBuilder<MonitorWorker>()
+            .setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .build()
+        workManager.enqueueUniqueWork(
+            "market-sentinel-monitor-now",
+            ExistingWorkPolicy.KEEP,
+            immediateCheck
+        )
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -139,6 +161,7 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SentinelApp(settings: SecureSettings) {
+    val appContext = LocalContext.current
     var tab by remember { mutableIntStateOf(0) }
     var settingsSection by remember { mutableStateOf("自选") }
     var snapshots by remember { mutableStateOf(emptyList<MarketSnapshot>()) }
@@ -576,7 +599,46 @@ private fun SentinelApp(settings: SecureSettings) {
                     }, modifier = Modifier.fillMaxWidth()) { Text("保存持仓与买卖提醒") } }
                     }
                     if (settingsSection == "策略") {
-                    item { Text("行情刷新与后台监控", style = MaterialTheme.typography.titleMedium) }
+                    item { Text("手机本地后台监控", style = MaterialTheme.typography.headlineSmall) }
+                    item {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color(0xFF111B2B)
+                        ) {
+                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("后台监控已配置 · 无需服务器", color = Color(0xFF72E0C0), style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    "后台通过 Android WorkManager 检查行情，目标间隔至少约 15 分钟；打开应用时也会尽快触发一次检查。应用退到后台或从最近任务划掉后，任务通常仍会运行，设备重启后由 WorkManager 恢复调度。",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    "注意：Android 省电模式、厂商后台管理、断网或强制停止应用可能延迟/暂停任务。请允许通知，并在手机系统设置中将本应用电池使用设为“不受限制/允许后台运行”（具体名称因品牌而异）。这不是秒级实时行情。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFFB9C7DA)
+                                )
+                                Button(
+                                    onClick = {
+                                        val constraints = Constraints.Builder()
+                                            .setRequiredNetworkType(NetworkType.CONNECTED)
+                                            .build()
+                                        val request = OneTimeWorkRequestBuilder<MonitorWorker>()
+                                            .setConstraints(constraints)
+                                            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                                            .build()
+                                        WorkManager.getInstance(appContext).enqueueUniqueWork(
+                                            "market-sentinel-monitor-now",
+                                            ExistingWorkPolicy.KEEP,
+                                            request
+                                        )
+                                        notice = "已请求立即后台检查；请保持网络连接并允许通知。"
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("立即检查一次") }
+                            }
+                        }
+                    }
+                    item { Text("前台行情刷新", style = MaterialTheme.typography.titleMedium) }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(15, 30, 60, 120, 300).forEach { seconds ->
                             if (refreshSeconds == seconds) Button(onClick = { refreshSeconds = seconds; settings.setRefreshSeconds(seconds) }) { Text(seconds.toString() + "秒") }
