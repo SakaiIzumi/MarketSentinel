@@ -102,6 +102,7 @@ private fun SentinelApp(settings: SecureSettings) {
     var tab by remember { mutableIntStateOf(0) }
     var symbols by remember { mutableStateOf(settings.getSymbols()) }
     var webhook by remember { mutableStateOf(settings.getWebhook()) }
+    var purchasePriceTexts = remember { androidx.compose.runtime.mutableStateMapOf<String, String>().apply { settings.getPurchasePrices().forEach { (symbol, price) -> put(symbol, price.toString()) } } }
     var status by remember { mutableStateOf("首次使用请联网刷新行情。") }
     var streamStatus by remember { mutableStateOf("等待加密货币实时连接…") }
     var busy by remember { mutableStateOf(false) }
@@ -382,6 +383,36 @@ private fun SentinelApp(settings: SecureSettings) {
                             HorizontalDivider()
                         }
                     } }
+                    item { Divider() }
+                    item { Text("买入价提醒", style = MaterialTheme.typography.headlineSmall) }
+                    item { Text("给每个自选标的填写你的买入价格。行情高于买入价时，App 会发送手机通知，并在已配置 Webhook 时发送企业微信提醒；首次高于时提醒一次，跌回买入价以下后再次突破才会重新提醒。留空表示关闭该标的的买入价提醒。", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFB9C7DA)) }
+                    items(symbols.split(",").map { it.trim().uppercase() }.filter { it.isNotBlank() }) { symbol ->
+                        OutlinedTextField(
+                            value = purchasePriceTexts[symbol] ?: "",
+                            onValueChange = { purchasePriceTexts[symbol] = it },
+                            label = { Text(localizedAssetName(symbol) + " · " + symbol + " 买入价") },
+                            placeholder = { Text(if (symbol.endsWith("USDT")) "例如 65000.00 USDT" else "例如 180.50") },
+                            supportingText = { Text("输入大于 0 的价格；加密货币按 USDT 计价") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                    }
+                    item { Button(onClick = {
+                        val entries = symbols.split(",").map { it.trim().uppercase() }.filter { it.isNotBlank() }
+                        val invalidSymbol = entries.firstOrNull { symbol ->
+                            val raw = purchasePriceTexts[symbol]?.trim().orEmpty()
+                            raw.isNotBlank() && (raw.toDoubleOrNull()?.let { it.isFinite() && it > 0 } != true)
+                        }
+                        if (invalidSymbol != null) {
+                            notice = "买入价格式无效（$invalidSymbol）：请填写大于 0 的数字，或留空关闭提醒。"
+                        } else {
+                            entries.forEach { symbol ->
+                                val raw = purchasePriceTexts[symbol]?.trim().orEmpty()
+                                settings.setPurchasePrice(symbol, if (raw.isBlank()) null else raw.toDoubleOrNull())
+                            }
+                            notice = "买入价设置已保存；后台会在下一次定时检查时生效。"
+                        }
+                    }, modifier = Modifier.fillMaxWidth()) { Text("保存买入价提醒") } }
                     item { Text("行情刷新与后台监控", style = MaterialTheme.typography.titleMedium) }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(15, 30, 60, 120, 300).forEach { seconds ->

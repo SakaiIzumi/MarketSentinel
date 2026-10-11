@@ -9,21 +9,43 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 class WeComNotifier {
-    private val client = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).build()
-    fun send(webhook: String, message: String): Result<Unit> = runCatching {
-        // 严格校验主机和路径，不能只用 contains()，避免把告警发往伪装域名。
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .build()
+
+    fun send(webhook: String, message: String): Result<Unit> =
+        post(webhook, JSONObject().put("msgtype", "text").put("text", JSONObject().put("content", message)))
+
+    /**
+     * 企业微信群机器人支持 Markdown 消息，不支持自定义 HTML 卡片。
+     * 使用标题、颜色、重点字段和分隔线，形成更易读的告警卡片效果。
+     */
+    fun sendMarkdown(webhook: String, markdown: String): Result<Unit> =
+        post(webhook, JSONObject().put("msgtype", "markdown").put("markdown", JSONObject().put("content", markdown)))
+
+    private fun post(webhook: String, payload: JSONObject): Result<Unit> = runCatching {
+        // 严格校验主机和路径，避免把告警发送到伪装域名。
         val parsed = webhook.toHttpUrlOrNull()
             ?: error("Webhook URL 格式无效")
-        require(parsed.isHttps && parsed.host == "qyapi.weixin.qq.com" &&
-            parsed.encodedPath == "/cgi-bin/webhook/send" && parsed.queryParameter("key").orEmpty().isNotBlank()) {
+        require(
+            parsed.isHttps &&
+                parsed.host == "qyapi.weixin.qq.com" &&
+                parsed.encodedPath == "/cgi-bin/webhook/send" &&
+                parsed.queryParameter("key").orEmpty().isNotBlank()
+        ) {
             "仅允许企业微信官方机器人 Webhook 地址"
         }
-        val payload = JSONObject().put("msgtype", "text").put("text", JSONObject().put("content", message)).toString()
-        val request = Request.Builder().url(parsed).post(payload.toRequestBody("application/json; charset=utf-8".toMediaType())).build()
+        val request = Request.Builder()
+            .url(parsed)
+            .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) error("企业微信 HTTP ${response.code}")
             val json = JSONObject(response.body?.string() ?: "{}")
-            if (json.optInt("errcode", -1) != 0) error("企业微信发送失败，errcode=${json.optInt("errcode", -1)}")
+            if (json.optInt("errcode", -1) != 0) {
+                error("企业微信发送失败，errcode=${json.optInt("errcode", -1)}")
+            }
         }
     }
 }
