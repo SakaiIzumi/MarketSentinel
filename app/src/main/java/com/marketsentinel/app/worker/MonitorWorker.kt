@@ -126,15 +126,15 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             }
             if (webhook.isNotBlank() && !crossingPrefs.getBoolean(wecomStateKey, false)) {
                 val markdown = buildString {
-                    appendLine("# <font color=\\"warning\\">星澜行情 · 买入价提醒</font>")
+                    appendLine("# 🚨 星澜行情 · 买入价提醒")
                     appendLine("> **$symbol 已高于你的买入价**")
                     appendLine()
-                    appendLine("<font color=\\"info\\">当前价格</font>：**$priceText**")
-                    appendLine("<font color=\\"info\\">你的买入价</font>：**$entryText**")
-                    appendLine("<font color=\\"warning\\">高于买入价</font>：**+${"%.2f".format(pctAbove)}%**")
+                    appendLine("**当前价格：** $priceText")
+                    appendLine("**你的买入价：** $entryText")
+                    appendLine("**高于买入价：** +${"%.2f".format(pctAbove)}%")
                     appendLine()
                     appendLine("---")
-                    appendLine("<font color=\\"comment\\">价格观察提醒，不构成投资建议；不会自动交易。</font>")
+                    appendLine("> 价格观察提醒，不构成投资建议；不会自动交易。")
                 }
                 if (WeComNotifier().sendMarkdown(webhook, markdown).isSuccess) {
                     crossingPrefs.edit().putBoolean(wecomStateKey, true).apply()
