@@ -200,6 +200,7 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
 
     private fun sendLocalNotification(title: String, message: String, notificationId: Int): Boolean {
         val context = applicationContext
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager.createNotificationChannel(
@@ -207,6 +208,7 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                     description = "股票与加密货币监控策略触发时发送提醒"
                 }
             )
+            if (manager.getNotificationChannel(CHANNEL_ID)?.importance == NotificationManager.IMPORTANCE_NONE) return false
         }
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
