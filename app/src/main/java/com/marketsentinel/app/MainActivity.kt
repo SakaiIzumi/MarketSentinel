@@ -128,8 +128,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 用户之前明确开启过实时监控时，重新打开应用后恢复服务；关闭开关会清除此状态。
-        if (getSharedPreferences(LiveMonitorService.PREFS, MODE_PRIVATE).getBoolean("enabled", false)) {
+        // 监控工具首次启动默认开启后台监控；用户之后手动关闭则尊重其选择。
+        val monitorPrefs = getSharedPreferences(LiveMonitorService.PREFS, MODE_PRIVATE)
+        if (!monitorPrefs.contains("configured")) {
+            monitorPrefs.edit().putBoolean("configured", true).putBoolean("enabled", true).apply()
+        }
+        if (monitorPrefs.getBoolean("enabled", false)) {
             runCatching {
                 androidx.core.content.ContextCompat.startForegroundService(
                     this, Intent(this, LiveMonitorService::class.java)
@@ -631,7 +635,7 @@ private fun SentinelApp(settings: SecureSettings) {
                                     onClick = {
                                         if (liveMonitorEnabled) {
                                             appContext.stopService(Intent(appContext, LiveMonitorService::class.java))
-                                            appContext.getSharedPreferences(LiveMonitorService.PREFS, 0).edit().putBoolean("enabled", false).apply()
+                                            appContext.getSharedPreferences(LiveMonitorService.PREFS, 0).edit().putBoolean("configured", true).putBoolean("enabled", false).apply()
                                             liveMonitorEnabled = false
                                             notice = "已请求停止实时后台监控。"
                                         } else {
@@ -640,7 +644,7 @@ private fun SentinelApp(settings: SecureSettings) {
                                                     appContext,
                                                     Intent(appContext, LiveMonitorService::class.java)
                                                 )
-                                                appContext.getSharedPreferences(LiveMonitorService.PREFS, 0).edit().putBoolean("enabled", true).apply()
+                                                appContext.getSharedPreferences(LiveMonitorService.PREFS, 0).edit().putBoolean("configured", true).putBoolean("enabled", true).apply()
                                                 liveMonitorEnabled = true
                                                 notice = "已启动实时后台监控；请保持通知权限和网络连接。"
                                             } catch (e: Exception) {
