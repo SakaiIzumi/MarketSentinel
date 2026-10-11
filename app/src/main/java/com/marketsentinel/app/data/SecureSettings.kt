@@ -23,6 +23,23 @@ class SecureSettings(context: Context) {
         prefs.edit().putString("watch_symbols", normalized.joinToString(",")).apply()
     }
 
+    fun getRefreshSeconds(): Int = prefs.getInt("refresh_seconds", 30).coerceIn(15, 300)
+    fun setRefreshSeconds(value: Int) {
+        prefs.edit().putInt("refresh_seconds", value.coerceIn(15, 300)).apply()
+    }
+
+    fun getCryptoThreshold(): Double = prefs.getString("crypto_threshold", "5.0")?.toDoubleOrNull()
+        ?.takeIf { it.isFinite() && it in 0.5..30.0 } ?: 5.0
+    fun setCryptoThreshold(value: Double) {
+        prefs.edit().putString("crypto_threshold", value.coerceIn(0.5, 30.0).toString()).apply()
+    }
+
+    fun getStockThreshold(): Double = prefs.getString("stock_threshold", "3.0")?.toDoubleOrNull()
+        ?.takeIf { it.isFinite() && it in 0.5..20.0 } ?: 3.0
+    fun setStockThreshold(value: Double) {
+        prefs.edit().putString("stock_threshold", value.coerceIn(0.5, 20.0).toString()).apply()
+    }
+
     companion object {
         const val DEFAULT_SYMBOLS = "BTCUSDT,ETHUSDT,SOLUSDT,^GSPC,^IXIC,^HSI,AAPL,MSFT,NVDA,600519.SS,399001.SZ,0700.HK"
     }
