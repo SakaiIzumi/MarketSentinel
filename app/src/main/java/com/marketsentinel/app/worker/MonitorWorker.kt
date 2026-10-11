@@ -72,7 +72,22 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             if (webhook.isNotBlank()) {
                 val webhookKey = key + "_wecom"
                 if (now - prefs.getLong(webhookKey, 0L) >= 4 * 60 * 60 * 1000L) {
-                    if (WeComNotifier().send(webhook, message).isSuccess) {
+                    val markdown = buildString {
+                        appendLine("# <font color=\"warning\">星澜行情 · ${if (signal.severity == "HIGH") "高风险提醒" else "行情观察提醒"}</font>")
+                        appendLine("> **${signal.title}**")
+                        appendLine()
+                        appendLine("<font color=\"info\">标的</font>：**${signal.symbol}**")
+                        appendLine("<font color=\"info\">当前价格</font>：**${signal.price}**")
+                        appendLine("<font color=\"info\">信号类型</font>：${signal.kind}")
+                        appendLine("<font color=\"info\">观察周期</font>：15 分钟 K 线")
+                        appendLine()
+                        appendLine("<font color=\"comment\">触发原因</font>")
+                        appendLine("> ${signal.reason}")
+                        appendLine()
+                        appendLine("---")
+                        appendLine("<font color=\"comment\">策略观察信号，仅供参考，不构成投资建议；不会自动交易。</font>")
+                    }
+                    if (WeComNotifier().sendMarkdown(webhook, markdown).isSuccess) {
                         prefs.edit().putLong(webhookKey, now).apply()
                         sent++
                     }
