@@ -1,6 +1,7 @@
 package com.marketsentinel.app
 
 import android.os.Bundle
+import android.content.Intent
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -162,6 +163,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun SentinelApp(settings: SecureSettings) {
     val appContext = LocalContext.current
+    var liveMonitorEnabled by remember { mutableStateOf(appContext.getSharedPreferences(LiveMonitorService.PREFS, 0).getBoolean("enabled", false)) }
     var tab by remember { mutableIntStateOf(0) }
     var settingsSection by remember { mutableStateOf("自选") }
     var snapshots by remember { mutableStateOf(emptyList<MarketSnapshot>()) }
@@ -392,7 +394,7 @@ private fun SentinelApp(settings: SecureSettings) {
                                 }
                                 Text(status, style = MaterialTheme.typography.bodySmall, color = Color(0xFFB9C7DA), maxLines = 3)
                                 Text("币价实时通道：$streamStatus", style = MaterialTheme.typography.labelSmall, color = if (streamStatus.contains("已连接")) Color(0xFF72E0C0) else Color(0xFFFFC078), maxLines = 2)
-                                Text("前台币价使用 WebSocket；股票行情可能延迟。后台定时检查约每 15 分钟一次。", style = MaterialTheme.typography.labelSmall, color = Color(0xFF91A3BB))
+                                Text("前台币价使用 WebSocket；开启常驻后台监控后，加密货币持仓止盈止损走实时推送，其他策略每分钟尝试检查。", style = MaterialTheme.typography.labelSmall, color = Color(0xFF91A3BB))
                             }
                         }
                     }
@@ -607,16 +609,39 @@ private fun SentinelApp(settings: SecureSettings) {
                             color = Color(0xFF111B2B)
                         ) {
                             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("后台监控已配置 · 无需服务器", color = Color(0xFF72E0C0), style = MaterialTheme.typography.titleMedium)
+                                Text(if (liveMonitorEnabled) "实时后台监控已开启" else "实时后台监控已关闭", color = Color(0xFF72E0C0), style = MaterialTheme.typography.titleMedium)
                                 Text(
-                                    "后台通过 Android WorkManager 检查行情，目标间隔至少约 15 分钟；打开应用时也会尽快触发一次检查。应用退到后台或从最近任务划掉后，任务通常仍会运行，设备重启后由 WorkManager 恢复调度。",
+                                    "开启后会运行带常驻通知的 Android 前台服务：加密货币使用 Binance WebSocket 实时接收价格，止盈/止损触发后立即尝试推送企业微信；股票、指数和技术策略每分钟尝试检查一次。WorkManager 的 15 分钟任务仍作为补充检查。无需自建服务器。",
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                                 Text(
-                                    "注意：Android 省电模式、厂商后台管理、断网或强制停止应用可能延迟/暂停任务。请允许通知，并在手机系统设置中将本应用电池使用设为“不受限制/允许后台运行”（具体名称因品牌而异）。这不是秒级实时行情。",
+                                    "请允许通知，并在系统设置中将本应用电池使用设为“不受限制/允许后台运行”。WebSocket 的加密货币价格推送通常接近实时；股票/指数依赖公开数据源，可能延迟。断网、系统强制停止、厂商省电策略仍可能中断监控；前台服务不能保证绝对实时或永不被杀。",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Color(0xFFB9C7DA)
                                 )
+                                Button(
+                                    onClick = {
+                                        if (liveMonitorEnabled) {
+                                            appContext.stopService(Intent(appContext, LiveMonitorService::class.java))
+                                            appContext.getSharedPreferences(LiveMonitorService.PREFS, 0).edit().putBoolean("enabled", false).apply()
+                                            liveMonitorEnabled = false
+                                            notice = "已请求停止实时后台监控。"
+                                        } else {
+                                            try {
+                                                androidx.core.content.ContextCompat.startForegroundService(
+                                                    appContext,
+                                                    Intent(appContext, LiveMonitorService::class.java)
+                                                )
+                                                appContext.getSharedPreferences(LiveMonitorService.PREFS, 0).edit().putBoolean("enabled", true).apply()
+                                                liveMonitorEnabled = true
+                                                notice = "已启动实时后台监控；请保持通知权限和网络连接。"
+                                            } catch (e: Exception) {
+                                                notice = "启动后台监控失败：" + (e.message ?: "请检查系统权限")
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text(if (liveMonitorEnabled) "停止实时后台监控" else "开启实时后台监控") }
                                 Button(
                                     onClick = {
                                         val constraints = Constraints.Builder()
