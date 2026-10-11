@@ -2,6 +2,9 @@ package com.marketsentinel.app.data
 
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
@@ -98,6 +101,63 @@ class MarketRepository {
                 last.volume, source = "Stooq · 日线（可能延迟）"),
             rows
         )
+    }
+
+    /**
+     * Subscribe to public Binance ticker streams. These updates are pushed by the exchange,
+     * rather than being polled on a timer. Only public market data is used; no API key required.
+     */
+    fun openCryptoTickerStream(
+        rawSymbols: List<String>,
+        onQuote: (MarketQuote) -> Unit,
+        onStatus: (String) -> Unit
+    ): WebSocket? {
+        val symbols = rawSymbols.map { it.trim().uppercase() }
+            .filter { isCryptoSymbol(it) }.distinct().take(20)
+        if (symbols.isEmpty()) return null
+        val streams = symbols.joinToString("/") { it.lowercase() + "@ticker" }
+        val request = Request.Builder()
+            .url("wss://stream.binance.com:9443/stream?streams=" + streams)
+            .build()
+        return client.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                onStatus("Binance 实时推送已连接")
+            }
+
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                try {
+                    val root = JSONObject(text)
+                    val data = root.optJSONObject("data") ?: root
+                    val symbol = data.optString("s").uppercase()
+                    val price = data.optString("c").toDoubleOrNull() ?: return
+                    val change = data.optString("P").toDoubleOrNull() ?: 0.0
+                    val volume = data.optString("q").toDoubleOrNull() ?: 0.0
+                    if (symbol.isNotBlank() && price > 0 && price.isFinite()) {
+                        onQuote(
+                            MarketQuote(
+                                symbol = symbol,
+                                market = "CRYPTO",
+                                price = price,
+                                changePct = change,
+                                volume = volume,
+                                updatedAt = System.currentTimeMillis(),
+                                source = "Binance WebSocket · 实时推送"
+                            )
+                        )
+                    }
+                } catch (_: Exception) {
+                    // Ignore a malformed stream event; keep the last valid quote.
+                }
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                onStatus("实时推送连接失败，定时行情仍会尝试更新：" + (t.message ?: "网络异常"))
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                onStatus("实时推送已断开：" + reason)
+            }
+        })
     }
 
     private fun isChinaSymbol(symbol: String): Boolean =
