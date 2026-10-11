@@ -23,7 +23,7 @@ class SecureSettings(context: Context) {
         prefs.edit().putString("watch_symbols", normalized.joinToString(",")).apply()
     }
 
-    fun getRefreshSeconds(): Int = prefs.getInt("refresh_seconds", 30).coerceIn(15, 300)
+    fun getRefreshSeconds(): Int = prefs.getInt("refresh_seconds", 15).coerceIn(15, 300)
     fun setRefreshSeconds(value: Int) {
         prefs.edit().putInt("refresh_seconds", value.coerceIn(15, 300)).apply()
     }
