@@ -16,7 +16,8 @@ class MarketRepository {
         .build()
 
     fun snapshot(rawSymbol: String): Result<MarketSnapshot> = runCatching {
-        val entered = rawSymbol.trim().uppercase()\n        val symbol = if (entered == "AIXIC") "^IXIC" else entered
+        val entered = rawSymbol.trim().uppercase()
+        val symbol = if (entered == "AIXIC") "^IXIC" else entered
         require(symbol.matches(Regex("[A-Z0-9.^=_-]{1,24}"))) { "标的代码格式不正确：" + rawSymbol }
         if (isCryptoSymbol(symbol)) crypto(symbol)
         else if (isChinaSymbol(symbol)) chinaQuote(symbol)
