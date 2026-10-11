@@ -210,7 +210,8 @@ class MarketRepository {
         val change = ticker.optString("priceChangePercent").toDoubleOrNull() ?: 0.0
         val volume = ticker.optString("quoteVolume").toDoubleOrNull() ?: 0.0
         val rows = arrayFromHosts(hosts) { it + "/api/v3/klines?symbol=" + symbol + "&interval=15m&limit=100" }
-        val candles = (0 until rows.length()).mapNotNull { i ->
+        // Binance 最后一根 K 线通常尚未收盘；策略只使用已收盘 K 线，减少信号随价格跳动反复变化。
+        val candles = (0 until (rows.length() - 1).coerceAtLeast(0)).mapNotNull { i ->
             val r = rows.optJSONArray(i) ?: return@mapNotNull null
             if (r.length() < 6) return@mapNotNull null
             val o = r.optString(1).toDoubleOrNull() ?: return@mapNotNull null
