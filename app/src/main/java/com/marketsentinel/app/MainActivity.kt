@@ -37,8 +37,11 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 
+private var customAssetNames: Map<String, String> = emptyMap()
+
 private fun localizedAssetName(symbol: String): String {
     val s = symbol.uppercase()
+    customAssetNames[s]?.takeIf { it.isNotBlank() }?.let { return it }
     return when (s) {
         "BTCUSDT", "BTCUSD", "BTC" -> "比特币"
         "ETHUSDT", "ETHUSD", "ETH" -> "以太坊"
@@ -140,6 +143,7 @@ private fun SentinelApp(settings: SecureSettings) {
     var settingsSection by remember { mutableStateOf("自选") }
     var snapshots by remember { mutableStateOf(emptyList<MarketSnapshot>()) }
     var symbols by remember { mutableStateOf(settings.getSymbols()) }
+    SideEffect { customAssetNames = settings.getAssetNames() }
     var webhook by remember { mutableStateOf(settings.getWebhook()) }
     var purchasePriceTexts = remember { androidx.compose.runtime.mutableStateMapOf<String, String>().apply { settings.getPurchasePrices().forEach { (symbol, price) -> put(symbol, price.toString()) } } }
     var holdingQuantityTexts = remember { androidx.compose.runtime.mutableStateMapOf<String, String>().apply { settings.getHoldingQuantities().forEach { (symbol, quantity) -> put(symbol, quantity.toString()) } } }
@@ -433,6 +437,8 @@ private fun SentinelApp(settings: SecureSettings) {
                                         } else {
                                             symbols = (symbols.split(",").map { it.trim() }.filter { it.isNotBlank() } + asset.symbol).distinct().joinToString(",")
                                             settings.setSymbols(symbols)
+                                            settings.setAssetName(asset.symbol, asset.name)
+                                            customAssetNames = settings.getAssetNames()
                                             status = "已添加 ${asset.name}（${asset.symbol}），正在等待行情刷新。"
                                             newSymbol = ""
                                         }
