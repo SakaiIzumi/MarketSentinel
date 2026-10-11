@@ -119,7 +119,7 @@ private fun SentinelApp(settings: SecureSettings) {
                 0 -> LazyColumn(Modifier.padding(padding).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item { Text("跨市场行情监控", style = MaterialTheme.typography.headlineSmall) }
                     item { ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Icon(Icons.Default.Refresh, contentDescription = null); Text(if (autoRefresh) "自动刷新 · 每 " + refreshSeconds + " 秒" else "自动刷新已暂停", style = MaterialTheme.typography.titleMedium) }; Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedButton(onClick = { autoRefresh = !autoRefresh }) { Text(if (autoRefresh) "暂停自动刷新" else "开启自动刷新") }; Button(enabled = !busy, onClick = { scope.launch { refreshQuotesNow() } }) { Icon(Icons.Default.Refresh, contentDescription = null); Spacer(Modifier.width(6.dp)); Text(if (busy) "刷新中…" else "立即刷新") } } } } }
-                    item { Text("默认数据源：Binance 公共现货 API（加密货币）及 Yahoo Finance Chart（股票/指数，非官方接口，可能延迟或限流）。无需数据源 API Key。") }
+                    item { Text("数据源：Binance（加密货币）；A 股新浪公开报价；海外股票/指数优先 Yahoo Finance，失败时回退 Stooq 日线。备用日线可能延迟，不代表实时成交价。无需数据源 API Key。") }
                     item { OutlinedTextField(symbols, { symbols = it.uppercase() }, label = { Text("监控标的（逗号分隔，最多 20 个）") }, supportingText = { Text("例：BTCUSDT,ETHUSDT,AAPL,600519.SS,0700.HK,^GSPC") }, modifier = Modifier.fillMaxWidth()) }
                     item {
                         ElevatedCard(Modifier.fillMaxWidth()) {
@@ -192,7 +192,7 @@ private fun SentinelApp(settings: SecureSettings) {
                                                 settings.setSymbols(symbols)
                                                 status = "已添加 ${preset.first}（${preset.second}），刷新后获取行情。"
                                             }
-                                        ) { Text(preset.first + "\\n" + preset.second, style = MaterialTheme.typography.labelSmall) }
+                                        ) { Text(preset.first + "\n" + preset.second, style = MaterialTheme.typography.labelSmall) }
                                     }
                                     if (pair.size == 1) Spacer(Modifier.weight(1f))
                                 }
