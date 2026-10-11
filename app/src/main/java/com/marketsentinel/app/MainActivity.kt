@@ -121,7 +121,14 @@ private fun SentinelApp(settings: SecureSettings) {
                     item { ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Icon(Icons.Default.Refresh, contentDescription = null); Text(if (autoRefresh) "自动刷新 · 每 " + refreshSeconds + " 秒" else "自动刷新已暂停", style = MaterialTheme.typography.titleMedium) }; Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedButton(onClick = { autoRefresh = !autoRefresh }) { Text(if (autoRefresh) "暂停自动刷新" else "开启自动刷新") }; Button(enabled = !busy, onClick = { scope.launch { refreshQuotesNow() } }) { Icon(Icons.Default.Refresh, contentDescription = null); Spacer(Modifier.width(6.dp)); Text(if (busy) "刷新中…" else "立即刷新") } } } } }
                     item { Text("默认数据源：Binance 公共现货 API（加密货币）及 Yahoo Finance Chart（股票/指数，非官方接口，可能延迟或限流）。无需数据源 API Key。") }
                     item { OutlinedTextField(symbols, { symbols = it.uppercase() }, label = { Text("监控标的（逗号分隔，最多 20 个）") }, supportingText = { Text("例：BTCUSDT,ETHUSDT,AAPL,600519.SS,0700.HK,^GSPC") }, modifier = Modifier.fillMaxWidth()) }
-                    item { Text(status, style = MaterialTheme.typography.bodySmall) }
+                    item {
+                        ElevatedCard(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("行情状态", style = MaterialTheme.typography.titleSmall)
+                                Text(status, style = MaterialTheme.typography.bodySmall, maxLines = 5)
+                            }
+                        }
+                    }
                     items(quotes) { q -> ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(q.symbol, style = MaterialTheme.typography.titleMedium)
@@ -146,7 +153,7 @@ private fun SentinelApp(settings: SecureSettings) {
                 }
                 else -> LazyColumn(Modifier.padding(padding).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item { Text("自选标的与刷新", style = MaterialTheme.typography.headlineSmall) }
-                    item { Text("支持 Binance 现货交易对和 Yahoo Finance 股票/指数代码。最多 20 个标的。", style = MaterialTheme.typography.bodyMedium) }
+                    item { Text("支持 A 股、港股、美股、指数及加密货币。A 股格式：600519.SS（沪市）、000001.SZ（深市）；指数代码请使用 ^IXIC 等格式。最多 20 个标的。", style = MaterialTheme.typography.bodyMedium) }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         OutlinedTextField(newSymbol, { newSymbol = it.uppercase() }, label = { Text("添加标的代码") }, placeholder = { Text("AAPL / 600519.SS / SOLUSDT") }, modifier = Modifier.weight(1f), singleLine = true)
                         Button(onClick = {
@@ -159,6 +166,39 @@ private fun SentinelApp(settings: SecureSettings) {
                             } else status = "代码无效、已存在或自选数量已达 20 个。"
                         }) { Icon(Icons.Default.Add, contentDescription = null) }
                     } }
+                    item { Text("快捷添加", style = MaterialTheme.typography.titleMedium) }
+                    item {
+                        val presets = listOf(
+                            "贵州茅台" to "600519.SS",
+                            "平安银行" to "000001.SZ",
+                            "宁德时代" to "300750.SZ",
+                            "比亚迪" to "002594.SZ",
+                            "上证指数" to "000001.SS",
+                            "深证成指" to "399001.SZ",
+                            "腾讯控股" to "0700.HK",
+                            "纳斯达克" to "^IXIC"
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            presets.chunked(2).forEach { pair ->
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    pair.forEach { preset ->
+                                        OutlinedButton(
+                                            modifier = Modifier.weight(1f),
+                                            enabled = symbols.split(",").map { it.trim() }.size < 20 &&
+                                                preset.second !in symbols.split(",").map { it.trim() },
+                                            onClick = {
+                                                symbols = (symbols.split(",").map { it.trim() }.filter { it.isNotBlank() } + preset.second)
+                                                    .distinct().take(20).joinToString(",")
+                                                settings.setSymbols(symbols)
+                                                status = "已添加 ${preset.first}（${preset.second}），刷新后获取行情。"
+                                            }
+                                        ) { Text(preset.first + "\\n" + preset.second, style = MaterialTheme.typography.labelSmall) }
+                                    }
+                                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    }
                     item { Text("当前自选（点击 × 删除）", style = MaterialTheme.typography.titleMedium) }
                     item { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         symbols.split(",").map { it.trim() }.filter { it.isNotBlank() }.forEach { symbol ->
