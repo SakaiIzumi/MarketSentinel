@@ -81,6 +81,43 @@ private fun localizedAssetName(symbol: String): String {
     }
 }
 
+private data class WatchlistAsset(val name: String, val symbol: String, val category: String)
+
+private val watchlistAssetCatalog = listOf(
+    WatchlistAsset("比特币", "BTCUSDT", "加密货币"),
+    WatchlistAsset("以太坊", "ETHUSDT", "加密货币"),
+    WatchlistAsset("索拉纳", "SOLUSDT", "加密货币"),
+    WatchlistAsset("币安币", "BNBUSDT", "加密货币"),
+    WatchlistAsset("瑞波币", "XRPUSDT", "加密货币"),
+    WatchlistAsset("狗狗币", "DOGEUSDT", "加密货币"),
+    WatchlistAsset("艾达币", "ADAUSDT", "加密货币"),
+    WatchlistAsset("雪崩协议", "AVAXUSDT", "加密货币"),
+    WatchlistAsset("Chainlink", "LINKUSDT", "加密货币"),
+    WatchlistAsset("波卡", "DOTUSDT", "加密货币"),
+    WatchlistAsset("莱特币", "LTCUSDT", "加密货币"),
+    WatchlistAsset("柴犬币", "SHIBUSDT", "加密货币"),
+    WatchlistAsset("苹果", "AAPL", "美股"),
+    WatchlistAsset("微软", "MSFT", "美股"),
+    WatchlistAsset("英伟达", "NVDA", "美股"),
+    WatchlistAsset("特斯拉", "TSLA", "美股"),
+    WatchlistAsset("亚马逊", "AMZN", "美股"),
+    WatchlistAsset("谷歌", "GOOGL", "美股"),
+    WatchlistAsset("Meta", "META", "美股"),
+    WatchlistAsset("标普500", "^GSPC", "指数"),
+    WatchlistAsset("纳斯达克", "^IXIC", "指数"),
+    WatchlistAsset("道琼斯", "^DJI", "指数"),
+    WatchlistAsset("恒生指数", "^HSI", "指数"),
+    WatchlistAsset("贵州茅台", "600519.SS", "A股"),
+    WatchlistAsset("平安银行", "000001.SZ", "A股"),
+    WatchlistAsset("宁德时代", "300750.SZ", "A股"),
+    WatchlistAsset("比亚迪", "002594.SZ", "A股"),
+    WatchlistAsset("上证指数", "000001.SS", "指数"),
+    WatchlistAsset("深证成指", "399001.SZ", "指数"),
+    WatchlistAsset("腾讯控股", "0700.HK", "港股"),
+    WatchlistAsset("阿里巴巴", "9988.HK", "港股"),
+    WatchlistAsset("美团", "3690.HK", "港股")
+)
+
 class MainActivity : ComponentActivity() {
     private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
@@ -201,7 +238,7 @@ private fun SentinelApp(settings: SecureSettings) {
         surfaceVariant = Color(0xFF1C2738),
         error = Color(0xFFFF6B7A)
     )) {
-        Scaffold(topBar = { TopAppBar(title = { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Icon(Icons.Default.ShowChart, contentDescription = null); Column { Text("星澜行情"); Text("MARKET RADAR", style = MaterialTheme.typography.labelSmall) } } }) }, bottomBar = {
+        Scaffold(topBar = { TopAppBar(title = { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Icon(Icons.Default.ShowChart, contentDescription = null); Column { Text("星澜 Pro"); Text("DIGITAL ASSET TERMINAL", style = MaterialTheme.typography.labelSmall) } } }) }, bottomBar = {
             NavigationBar {
                 NavigationBarItem(tab == 0, { tab = 0 }, icon = { Icon(Icons.Default.ShowChart, contentDescription = null) }, label = { Text("行情") })
                 NavigationBarItem(tab == 1, { tab = 1 }, icon = { Icon(Icons.Default.Tune, contentDescription = null) }, label = { Text("策略") })
@@ -323,18 +360,79 @@ private fun SentinelApp(settings: SecureSettings) {
                 else -> LazyColumn(Modifier.padding(padding).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item { Text("自选标的与刷新", style = MaterialTheme.typography.headlineSmall) }
                     item { Text("支持 A 股、港股、美股、指数及加密货币。A 股格式：600519.SS（沪市）、000001.SZ（深市）；指数代码请使用 ^IXIC 等格式。最多 20 个标的。名称会显示中文别名，代码仍保留用于准确识别。", style = MaterialTheme.typography.bodyMedium) }
-                    item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        OutlinedTextField(newSymbol, { newSymbol = it.uppercase() }, label = { Text("添加标的代码") }, placeholder = { Text("AAPL / 600519.SS / SOLUSDT") }, modifier = Modifier.weight(1f), singleLine = true)
-                        Button(onClick = {
-                            val symbol = newSymbol.trim().uppercase()
-                            if (symbol.matches(Regex("[A-Z0-9.^=_-]{1,24}")) && symbol !in symbols.split(",").map { it.trim() } && symbols.split(",").filter { it.isNotBlank() }.size < 20) {
-                                symbols = (symbols.split(",").map { it.trim() }.filter { it.isNotBlank() } + symbol).distinct().joinToString(",")
-                                settings.setSymbols(symbols)
-                                newSymbol = ""
-                                status = "已添加 " + symbol + "，正在等待行情刷新。"
-                            } else status = "代码无效、已存在或自选数量已达 20 个。"
-                        }) { Icon(Icons.Default.Add, contentDescription = null) }
-                    } }
+                    item {
+                        OutlinedTextField(
+                            value = newSymbol,
+                            onValueChange = { newSymbol = it.take(40) },
+                            label = { Text("搜索资产名称或代码") },
+                            placeholder = { Text("试试：比特币、英伟达、腾讯、BTC、ETH") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            leadingIcon = { Icon(Icons.Default.ShowChart, contentDescription = null) },
+                            shape = RoundedCornerShape(14.dp)
+                        )
+                    }
+                    item {
+                        val query = newSymbol.trim()
+                        val matches = watchlistAssetCatalog.filter { asset ->
+                            query.isBlank() ||
+                                asset.name.contains(query, ignoreCase = true) ||
+                                asset.symbol.contains(query, ignoreCase = true) ||
+                                asset.category.contains(query, ignoreCase = true)
+                        }.take(if (query.isBlank()) 8 else 12)
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(if (query.isBlank()) "热门资产 · 点击添加" else "搜索结果（名称和代码均可匹配）", style = MaterialTheme.typography.titleSmall, color = Color(0xFFB9C7DA))
+                            matches.forEach { asset ->
+                                val alreadyAdded = asset.symbol in symbols.split(",").map { it.trim() }
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFF111B2B),
+                                    onClick = {
+                                        if (alreadyAdded) {
+                                            status = "${asset.name} 已在自选中。"
+                                        } else if (symbols.split(",").filter { it.isNotBlank() }.size >= 20) {
+                                            status = "自选数量已达 20 个上限。"
+                                        } else {
+                                            symbols = (symbols.split(",").map { it.trim() }.filter { it.isNotBlank() } + asset.symbol).distinct().joinToString(",")
+                                            settings.setSymbols(symbols)
+                                            status = "已添加 ${asset.name}（${asset.symbol}），正在等待行情刷新。"
+                                            newSymbol = ""
+                                        }
+                                    }
+                                ) {
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Surface(shape = RoundedCornerShape(10.dp), color = Color(0xFF1C2D40)) {
+                                            Text(asset.symbol.takeWhile { it.isLetterOrDigit() }.take(3), modifier = Modifier.padding(8.dp), color = Color(0xFF72E0C0), style = MaterialTheme.typography.labelMedium)
+                                        }
+                                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(asset.name, color = Color(0xFFF2F6FF), style = MaterialTheme.typography.bodyLarge)
+                                            Text("${asset.symbol} · ${asset.category}", color = Color(0xFF92A5BF), style = MaterialTheme.typography.labelSmall)
+                                        }
+                                        Text(if (alreadyAdded) "已添加" else "+ 添加", color = if (alreadyAdded) Color(0xFF8497B1) else Color(0xFF72E0C0), style = MaterialTheme.typography.labelMedium)
+                                    }
+                                }
+                            }
+                            if (query.isNotBlank() && matches.isEmpty() && query.matches(Regex("[A-Za-z0-9.^=_-]{1,24}"))) {
+                                OutlinedButton(
+                                    onClick = {
+                                        val symbol = query.uppercase()
+                                        if (symbol !in symbols.split(",").map { it.trim() } && symbols.split(",").filter { it.isNotBlank() }.size < 20) {
+                                            symbols = (symbols.split(",").map { it.trim() }.filter { it.isNotBlank() } + symbol).distinct().joinToString(",")
+                                            settings.setSymbols(symbols)
+                                            status = "已添加代码 ${symbol}；请确认数据源支持该标的。"
+                                            newSymbol = ""
+                                        } else status = "代码已存在或自选数量已达 20 个。"
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("按代码添加：${query.uppercase()}") }
+                            }
+                        }
+                    }
                     item { Text("快捷添加", style = MaterialTheme.typography.titleMedium) }
                     item {
                         val presets = listOf(

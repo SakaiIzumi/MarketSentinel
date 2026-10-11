@@ -53,7 +53,7 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
         for (signal in signals) {
             if (sent >= 5) break
             val key = "${signal.symbol}_${signal.kind}".replace(Regex("[^A-Za-z0-9_.-]"), "_")
-            val message = "【星澜行情/${signal.severity}】${signal.title}\n" +
+            val message = "【星澜 Pro/${signal.severity}】${signal.title}\n" +
                 "标的：${signal.symbol}\n现价：${signal.price}\n规则：${signal.kind}\n" +
                 "原因：${signal.reason}\n周期：15 分钟 K 线\n" +
                 "仅为策略观察信号，不构成投资建议；不会自动交易。"
@@ -73,7 +73,7 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 val webhookKey = key + "_wecom"
                 if (now - prefs.getLong(webhookKey, 0L) >= 4 * 60 * 60 * 1000L) {
                     val markdown = buildString {
-                        appendLine("# <font color=\"warning\">星澜行情 · ${if (signal.severity == "HIGH") "高风险提醒" else "行情观察提醒"}</font>")
+                        appendLine("# <font color=\"warning\">星澜 Pro · ${if (signal.severity == "HIGH") "高风险提醒" else "行情观察提醒"}</font>")
                         appendLine("> **${signal.title}**")
                         appendLine()
                         appendLine("<font color=\"info\">标的</font>：**${signal.symbol}**")
@@ -115,7 +115,7 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             val priceText = if (snapshot.quote.market == "CRYPTO") "${"%.8f".format(currentPrice)} USDT" else "%.4f".format(currentPrice)
             val entryText = if (snapshot.quote.market == "CRYPTO") "${"%.8f".format(entryPrice)} USDT" else "%.4f".format(entryPrice)
             val title = "价格高于你的买入价"
-            val message = "【星澜行情·买入价提醒】$symbol 已高于你设置的买入价。\n" +
+            val message = "【星澜 Pro·买入价提醒】$symbol 已高于你设置的买入价。\n" +
                 "当前价格：$priceText\n你的买入价：$entryText\n" +
                 "高于买入价：+${"%.2f".format(pctAbove)}%\n" +
                 "这只是价格提醒，不代表建议买入或卖出。"
@@ -126,7 +126,7 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             }
             if (webhook.isNotBlank() && !crossingPrefs.getBoolean(wecomStateKey, false)) {
                 val markdown = buildString {
-                    appendLine("# 🚨 星澜行情 · 买入价提醒")
+                    appendLine("# 🚨 星澜 Pro · 买入价提醒")
                     appendLine("> **$symbol 已高于你的买入价**")
                     appendLine()
                     appendLine("**当前价格：** $priceText")
@@ -168,7 +168,7 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("星澜行情 · $title")
+            .setContentTitle("星澜 Pro · $title")
             .setContentText(message.lineSequence().firstOrNull() ?: "检测到行情观察信号")
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
