@@ -3,6 +3,7 @@ package com.marketsentinel.app.data
 import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import org.json.JSONObject
 
 class SecureSettings(context: Context) {
     private val prefs = EncryptedSharedPreferences.create(
@@ -21,6 +22,33 @@ class SecureSettings(context: Context) {
         val normalized = value.split(",").map { it.trim().uppercase() }
             .filter { it.isNotBlank() }.distinct().take(20)
         prefs.edit().putString("watch_symbols", normalized.joinToString(",")).apply()
+    }
+
+    /** 获取用户为各个标的设置的买入参考价。 */
+    fun getPurchasePrices(): Map<String, Double> {
+        val raw = prefs.getString("purchase_prices", "{}") ?: "{}"
+        return runCatching {
+            val json = JSONObject(raw)
+            buildMap {
+                val keys = json.keys()
+                while (keys.hasNext()) {
+                    val symbol = keys.next()
+                    val price = json.optDouble(symbol, Double.NaN)
+                    if (symbol.isNotBlank() && price.isFinite() && price > 0) put(symbol, price)
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    fun setPurchasePrice(symbol: String, value: Double?) {
+        val normalized = symbol.trim().uppercase()
+        if (normalized.isBlank()) return
+        val prices = getPurchasePrices().toMutableMap()
+        if (value == null || !value.isFinite() || value <= 0) prices.remove(normalized)
+        else prices[normalized] = value
+        val json = JSONObject()
+        prices.forEach { (key, price) -> json.put(key, price) }
+        prefs.edit().putString("purchase_prices", json.toString()).apply()
     }
 
     fun getRefreshSeconds(): Int = prefs.getInt("refresh_seconds", 15).coerceIn(15, 300)
