@@ -22,7 +22,7 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
         if (symbols.isEmpty()) return@withContext Result.success()
         val repo = MarketRepository()
         val fetched = coroutineScope { symbols.map { s -> async { s to repo.snapshot(s) } }.awaitAll() }
-        val signals = fetched.flatMap { (_, result) -> result.getOrNull()?.let { StrategyEngine.evaluate(it) }.orEmpty() }
+        val signals = fetched.flatMap { (_, result) -> result.getOrNull()?.let { StrategyEngine.evaluate(it, settings.getCryptoThreshold(), settings.getStockThreshold()) }.orEmpty() }
             .filter { it.severity == "HIGH" || it.severity == "MEDIUM" }
         val prefs = applicationContext.getSharedPreferences("alert_dedupe", Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
