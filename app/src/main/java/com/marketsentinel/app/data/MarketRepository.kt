@@ -160,6 +160,44 @@ class MarketRepository {
         })
     }
 
+    /** 按 A 股名称、简称/拼音或代码搜索新浪公开建议接口。 */
+    fun searchChinaStocks(query: String): List<AssetSearchResult> {
+        val keyword = query.trim()
+        if (keyword.isBlank()) return emptyList()
+        val encoded = java.net.URLEncoder.encode(keyword, "UTF-8")
+        val url = "https://suggest3.sinajs.cn/suggest/type=11,12,13,14,15&key=" + encoded
+        val request = Request.Builder().url(url)
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125.0 Mobile Safari/537.36")
+            .header("Referer", "https://finance.sina.com.cn/")
+            .header("Accept", "*/*")
+            .get().build()
+        val body = client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) error("A 股搜索接口 HTTP " + response.code)
+            val bytes = response.body?.bytes() ?: error("A 股搜索接口返回为空")
+            String(bytes, java.nio.charset.Charset.forName("GBK"))
+        }
+        val payload = body.substringAfter('=', body).trim().trimEnd(';').trim().trim('"')
+        return payload.split(';').mapNotNull { record ->
+            val fields = record.split(',')
+            if (fields.size < 5) return@mapNotNull null
+            val rawSymbol = fields.getOrNull(0).orEmpty().trim().lowercase()
+            val rawCode = fields.getOrNull(2).orEmpty().trim()
+            val code = Regex("[0-9]{6}").find(rawCode)?.value
+                ?: Regex("[0-9]{6}").find(rawSymbol)?.value
+                ?: return@mapNotNull null
+            val exchange = when {
+                rawSymbol.startsWith("sh") || rawSymbol.startsWith("ss") -> "SS"
+                rawSymbol.startsWith("sz") -> "SZ"
+                code.startsWith("6") || code.startsWith("9") -> "SS"
+                code.startsWith("0") || code.startsWith("2") || code.startsWith("3") -> "SZ"
+                else -> return@mapNotNull null
+            }
+            val name = fields.getOrNull(4).orEmpty().trim().ifBlank { fields.getOrNull(6).orEmpty().trim() }
+            if (name.isBlank()) return@mapNotNull null
+            AssetSearchResult(name, "$code.$exchange", "A股")
+        }.distinctBy { it.symbol }.take(12)
+    }
+
     private fun isChinaSymbol(symbol: String): Boolean =
         symbol.matches(Regex("^[0-9]{6}\\.(SS|SZ)$"))
 
