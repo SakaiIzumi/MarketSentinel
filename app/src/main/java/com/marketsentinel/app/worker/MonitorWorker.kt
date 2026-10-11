@@ -162,7 +162,12 @@ class MonitorWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             if (oldZone == zone) continue
             val priceText = if (snapshot.quote.market == "CRYPTO") "${"%.8f".format(currentPrice)} USDT" else "%.4f".format(currentPrice)
             val costText = if (snapshot.quote.market == "CRYPTO") "${"%.8f".format(position.averageCost)} USDT" else "%.4f".format(position.averageCost)
-            val currency = if (snapshot.quote.market == "CRYPTO") "USDT" else "计价货币"
+            val currency = when (snapshot.quote.market) {
+                "CRYPTO" -> "USDT"
+                "A股" -> "CNY"
+                "港股/恒指" -> "HKD"
+                else -> "USD"
+            }
             val message = "【星澜 Pro·持仓操作提醒】$symbol\n" +
                 "操作结论：$action\n当前价格：$priceText\n买入均价：$costText\n" +
                 "持有数量：${position.quantity}\n浮动盈亏：${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%（约 ${"%.2f".format(pnlAmount)} $currency，未计手续费/税费）\n" +
