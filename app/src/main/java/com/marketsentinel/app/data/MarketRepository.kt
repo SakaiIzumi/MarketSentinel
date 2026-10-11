@@ -9,9 +9,9 @@ import java.util.concurrent.TimeUnit
 /** Public data only; tries alternate public endpoints to reduce transient failures. */
 class MarketRepository {
     private val client = OkHttpClient.Builder()
-        .connectTimeout(4, TimeUnit.SECONDS)
-        .readTimeout(6, TimeUnit.SECONDS)
-        .callTimeout(9, TimeUnit.SECONDS)
+        .connectTimeout(2, TimeUnit.SECONDS)
+        .readTimeout(3, TimeUnit.SECONDS)
+        .callTimeout(4, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
 
@@ -99,6 +99,8 @@ class MarketRepository {
                 )
             } catch (e: Exception) {
                 lastError = e
+                val message = e.message.orEmpty()
+                if (message.contains("HTTP 429") || message.contains("HTTP 403") || message.contains("HTTP 401")) break
             }
         }
         throw IllegalStateException("Yahoo Finance 获取 " + symbol +
