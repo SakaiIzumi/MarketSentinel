@@ -128,6 +128,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 用户之前明确开启过实时监控时，重新打开应用后恢复服务；关闭开关会清除此状态。
+        if (getSharedPreferences(LiveMonitorService.PREFS, MODE_PRIVATE).getBoolean("enabled", false)) {
+            runCatching {
+                androidx.core.content.ContextCompat.startForegroundService(
+                    this, Intent(this, LiveMonitorService::class.java)
+                )
+            }
+        }
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
@@ -139,7 +147,7 @@ class MainActivity : ComponentActivity() {
         // WorkManager 会在应用退出后继续调度，并负责设备重启后的任务恢复。
         workManager.enqueueUniquePeriodicWork(
             "market-sentinel-monitor",
-            ExistingPeriodicWorkPolicy.UPDATE,
+            ExistingPeriodicWorkPolicy.KEEP,
             request
         )
         // 首次启动或再次打开应用时尽快执行一次，不必等待下一个 15 分钟周期。
