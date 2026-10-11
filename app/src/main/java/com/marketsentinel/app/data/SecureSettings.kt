@@ -51,6 +51,31 @@ class SecureSettings(context: Context) {
         prefs.edit().putString("purchase_prices", json.toString()).apply()
     }
 
+    fun getAssetNames(): Map<String, String> {
+        val raw = prefs.getString("asset_names", "{}") ?: "{}"
+        return runCatching {
+            val json = JSONObject(raw)
+            buildMap {
+                val keys = json.keys()
+                while (keys.hasNext()) {
+                    val symbol = keys.next()
+                    val name = json.optString(symbol).trim()
+                    if (symbol.isNotBlank() && name.isNotBlank()) put(symbol, name)
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    fun setAssetName(symbol: String, name: String) {
+        val normalized = symbol.trim().uppercase()
+        if (normalized.isBlank() || name.isBlank()) return
+        val names = getAssetNames().toMutableMap()
+        names[normalized] = name.trim()
+        val json = JSONObject()
+        names.forEach { (key, value) -> json.put(key, value) }
+        prefs.edit().putString("asset_names", json.toString()).apply()
+    }
+
     /** 用户持仓数量；买入均价沿用 purchase_prices，兼容旧设置。 */
     fun getHoldingQuantities(): Map<String, Double> {
         val raw = prefs.getString("holding_quantities", "{}") ?: "{}"
