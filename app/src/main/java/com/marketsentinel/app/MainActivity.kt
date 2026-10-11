@@ -130,8 +130,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // 监控工具首次启动默认开启后台监控；用户之后手动关闭则尊重其选择。
         val monitorPrefs = getSharedPreferences(LiveMonitorService.PREFS, MODE_PRIVATE)
-        if (!monitorPrefs.contains("configured")) {
+        if (!monitorPrefs.contains("enabled")) {
             monitorPrefs.edit().putBoolean("configured", true).putBoolean("enabled", true).apply()
+        } else if (!monitorPrefs.contains("configured")) {
+            // 兼容旧版本中用户已经明确关闭的状态，不在升级后擅自重新开启。
+            monitorPrefs.edit().putBoolean("configured", true).apply()
         }
         if (monitorPrefs.getBoolean("enabled", false)) {
             runCatching {
